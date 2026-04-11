@@ -76,7 +76,7 @@ ${LA_DATA_ROOT:-/data/localagent}/
 - `bash ops/agent.sh deploy local`
 
 ## 4.2) Quick update (server)
-- `SERVER_SSH_PASS='***' bash ops/agent.sh deploy server`
+- `bash ops/agent.sh deploy server`
 
 ## 5) HA/stateless notes
 - `OpenWebUI` có thể scale ngang (ví dụ `--scale open-webui=3`) vì session/cache đã đẩy ra Redis, DB ra Postgres, file lên MinIO.
@@ -84,10 +84,10 @@ ${LA_DATA_ROOT:-/data/localagent}/
 - `OpenClaw gateway` hiện cũng theo hướng single instance + externalized config/workspace volume.
 
 ## 6) Release từng phần (upgrade từng service)
-- Nếu image nằm trên registry: chạy `pull` trước. Nếu bạn build/load image local (`omniroute:intel`, `openclaw:intel`) thì có thể bỏ bước `pull`.
-- OmniRoute: `bash deploy/scripts/stack.sh apps pull omniroute && bash deploy/scripts/stack.sh apps up -d --no-deps omniroute`
-- OpenWebUI: `bash deploy/scripts/stack.sh apps pull open-webui && bash deploy/scripts/stack.sh apps up -d --no-deps open-webui`
-- OpenClaw: `bash deploy/scripts/stack.sh apps pull openclaw-gateway openclaw-cli && bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway openclaw-cli`
+- App layer không dùng remote release image. Trước mỗi partial release, build lại image đúng service từ source workspace.
+- OmniRoute: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh omniroute && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute`
+- OpenWebUI: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh open-webui && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps open-webui`
+- OpenClaw: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh openclaw && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway openclaw-cli`
 - Sau khi upgrade `omniroute`, `open-webui`, hoặc `openclaw-gateway`, chạy lại `bash deploy/scripts/bootstrap_app_clients.sh` để đồng bộ app keys/runtime config
 
 ## 6.1) HTTPS local/server

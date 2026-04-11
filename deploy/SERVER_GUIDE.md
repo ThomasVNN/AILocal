@@ -14,8 +14,8 @@ Source of truth vận hành: `deploy/DEPLOY_KNOWLEDGE.md`
   - `443/tcp` (Traefik HTTPS)
   - `8088/tcp` (Traefik dashboard, optional)
 
-## Deploy (khuyến nghị trên server)
-1) Copy thư mục `deploy/` lên server (hoặc clone repo này vào server).
+## Deploy
+1) Copy repo này lên máy dev build host, và chỉ cần thư mục `deploy/` trên server.
 
 2) Tạo env:
 - `cp deploy/env/stack.server.env.example deploy/env/stack.env`
@@ -32,14 +32,15 @@ Source of truth vận hành: `deploy/DEPLOY_KNOWLEDGE.md`
 - `bash deploy/scripts/bootstrap_openclaw.sh`
   - bước này sẽ set origin HTTPS cho Control UI, trust Traefik proxy IP, và giữ `OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=false` trừ khi bạn chủ động đổi env
 
-6) Start apps:
-- `bash deploy/scripts/stack.sh apps up -d`
+6) Rollout app layer từ máy dev/build host:
+- `bash ops/agent.sh deploy server`
+- script sẽ build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` từ source workspace, upload image tar sang server, `docker load`, start `omniroute` trước, rồi mới reconcile `open-webui` + `openclaw`
 
 7) Reconcile app auth/runtime:
 - `bash deploy/scripts/bootstrap_app_clients.sh`
-  - provision OmniRoute app keys cho OpenWebUI/OpenClaw nếu env còn placeholder
-  - sync OpenWebUI runtime config trong Postgres
-  - seed OpenClaw provider/model defaults theo OmniRoute catalog
+- provision OmniRoute app keys cho OpenWebUI/OpenClaw nếu env còn placeholder
+- sync OpenWebUI runtime config trong Postgres
+- seed OpenClaw provider/model defaults theo OmniRoute catalog
 
 8) Lấy dashboard URL cho OpenClaw:
 - `bash deploy/scripts/openclaw_dashboard.sh`
@@ -63,8 +64,8 @@ Ghi chú: nếu bạn truy cập qua Tailscale, `<server-ip>` có thể là IP T
 - Nếu truy cập từ Mac client, copy file CA này về máy client và trust nó để bỏ cảnh báo cert.
 
 ## Upgrade / Rollback nhanh
-- Upgrade 1 service: xem `deploy/STACK_GUIDE.md`
-- Rollback: đổi tag image trong `deploy/env/stack.env` rồi chạy lại `bash deploy/scripts/stack.sh apps up -d --no-deps <service>`
+- Upgrade 1 service: build lại image từ source rồi rollout từng service theo `deploy/STACK_GUIDE.md`
+- Rollback: `docker load` lại image tar cũ với đúng tag (`omniroute:intel`, `open-webui:intel`, `openclaw:intel`) rồi chạy lại `bash deploy/scripts/stack.sh apps up -d --no-deps <service>`
 
 ## Backup
 - Postgres backup tự chạy (xem `${LA_DATA_ROOT:-/data/localagent}/platform/backups/postgres`)

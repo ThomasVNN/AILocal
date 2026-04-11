@@ -1,9 +1,29 @@
 name: localagent-apps
 
+x-omniroute-build: &omniroute-build
+  context: ../../OmniRoute
+  dockerfile: Dockerfile
+  target: runner-base
+
+x-openwebui-build: &openwebui-build
+  context: ../../open-webui
+  dockerfile: Dockerfile
+  args:
+    USE_OLLAMA: "false"
+    USE_SLIM: "true"
+    USE_PERMISSION_HARDENING: "false"
+    BUILD_HASH: localagent-source
+
+x-openclaw-build: &openclaw-build
+  context: ../../openclaw
+  dockerfile: Dockerfile
+
 services:
   omniroute:
     image: ${OMNIROUTE_IMAGE:-omniroute:intel}
+    build: *omniroute-build
     platform: ${OMNIROUTE_PLATFORM:-linux/amd64}
+    pull_policy: never
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -57,7 +77,10 @@ services:
       - traefik.http.services.omniroute-api.loadbalancer.server.port=${OMNIROUTE_API_PORT:-20129}
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:${OPENWEBUI_TAG:-main}
+    image: ${OPENWEBUI_IMAGE:-open-webui:intel}
+    build: *openwebui-build
+    platform: ${OPENWEBUI_PLATFORM:-linux/amd64}
+    pull_policy: never
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -65,7 +88,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - omniroute
+      omniroute:
+        condition: service_healthy
     environment:
       DATA_DIR: /app/backend/data
       ENABLE_OLLAMA_API: "False"
@@ -101,7 +125,9 @@ services:
 
   openclaw-gateway:
     image: ${OPENCLAW_IMAGE:-openclaw:intel}
+    build: *openclaw-build
     platform: ${OPENCLAW_PLATFORM:-linux/amd64}
+    pull_policy: never
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -109,7 +135,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - omniroute
+      omniroute:
+        condition: service_healthy
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -159,6 +186,7 @@ services:
   openclaw-cli:
     image: ${OPENCLAW_IMAGE:-openclaw:intel}
     platform: ${OPENCLAW_PLATFORM:-linux/amd64}
+    pull_policy: never
     network_mode: "service:openclaw-gateway"
     cap_drop:
       - NET_RAW
@@ -166,7 +194,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - openclaw-gateway
+      openclaw-gateway:
+        condition: service_healthy
     environment:
       HOME: /home/node
       TERM: xterm-256color

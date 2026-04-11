@@ -64,7 +64,7 @@ Mẫu:
 **Apps/Compute**
 - OmniRoute: `OMNIROUTE_IMAGE`, `OMNIROUTE_PLATFORM`, `OMNIROUTE_HOST`, `OMNIROUTE_API_HOST`, `OMNIROUTE_PUBLIC_URL`
 - OmniRoute secrets: `JWT_SECRET`, `API_KEY_SECRET`, `STORAGE_ENCRYPTION_KEY`, `INITIAL_PASSWORD`, `MACHINE_ID_SALT`
-- OpenWebUI: `OPENWEBUI_TAG`, `OPENWEBUI_HOST`, `OPENWEBUI_OPENAI_API_KEY`, `OPENWEBUI_DATABASE_URL`, `OPENWEBUI_REDIS_URL`, `OPENWEBUI_S3_*`
+- OpenWebUI: `OPENWEBUI_IMAGE`, `OPENWEBUI_PLATFORM`, `OPENWEBUI_HOST`, `OPENWEBUI_OPENAI_API_KEY`, `OPENWEBUI_DATABASE_URL`, `OPENWEBUI_REDIS_URL`, `OPENWEBUI_S3_*`
 - OpenClaw: `OPENCLAW_IMAGE`, `OPENCLAW_PLATFORM`, `OPENCLAW_HOST`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH`
 
 ### 2.3 Variables CI (deploy server)
@@ -73,11 +73,12 @@ Khi chạy CI/CD từ máy build (Mac/dev hoặc runner tự-host), nên đặt:
 - `SERVER_REMOTE` (vd: `mzk-12-10@100.101.77.8`)
 - `SERVER_DIR` (default `~/localagent`)
 - `SERVER_ENV_FILE` (default `~/localagent/deploy/env/stack.env`)
+- `SERVER_SSH_KEY` (khuyến nghị)
 - `SERVER_SSH_PASS` (chỉ khi chưa dùng SSH key)
 
 Tối thiểu cần:
 ```bash
-SERVER_SSH_PASS='123513' bash ops/agent.sh deploy server
+bash ops/agent.sh deploy server
 ```
 
 ## 2.4 Variables CI (deploy local)
@@ -109,18 +110,20 @@ Script `ops/deploy_local.sh` làm:
 3) (Mặc định) dừng stack cũ để giải phóng RAM: `DEPLOY_LOCAL_STOP_FIRST=1`.
 4) Build images:
    - `omniroute:local` (`linux/arm64`, target `runner-base`)
+   - `open-webui:local` (`linux/arm64`)
    - `openclaw:local` (`linux/arm64`)
 5) Bootstrap data dirs (dưới `${LA_DATA_ROOT}`).
-6) Up `platform` rồi `apps`.
-   - `stack.sh platform` sẽ auto-generate cert nội bộ và render Traefik dynamic config.
-   - `bootstrap_openclaw.sh` sẽ set `gateway.controlUi.allowedOrigins=["https://..."]`, `gateway.trustedProxies`, và cờ device-auth theo env hiện tại.
-7) Reconcile app auth/runtime:
+6) Up `platform`, chờ `postgres-primary` + `redis` healthy.
+7) Start `omniroute` trước rồi chờ healthy.
+8) `bootstrap_openclaw.sh` sẽ set `gateway.controlUi.allowedOrigins=["https://..."]`, `gateway.trustedProxies`, và cờ device-auth theo env hiện tại.
+9) Reconcile app auth/runtime:
    - `bootstrap_app_clients.sh` sẽ provision app keys cho OpenWebUI/OpenClaw.
    - Sync `config.data.openai` trong Postgres **và** Redis của OpenWebUI để runtime luôn dùng `http://omniroute:<port>/v1`, không dùng loopback `127.0.0.1`.
    - Seed OpenClaw provider/model defaults theo OmniRoute catalog và ép `models.providers.omniroute.baseUrl=http://omniroute:<port>/v1`.
    - Force recreate `open-webui` + `openclaw-gateway` để runtime nạp config mới thật sự.
-8) Chạy healthcheck có retry qua HTTPS.
-9) Chạy smoke test end-to-end qua OmniRoute.
+10) Start `openclaw-cli`.
+11) Chạy healthcheck có retry qua HTTPS.
+12) Chạy smoke test end-to-end qua OmniRoute.
 
 **Build tuning (khi Docker Desktop thiếu RAM)**
 - `OMNIROUTE_BUILD_NODE_OPTIONS` (default `--max-old-space-size=3072`)
@@ -133,32 +136,36 @@ OMNIROUTE_NEXT_BUILD_CPUS=1 OMNIROUTE_BUILD_NODE_OPTIONS="--max-old-space-size=2
 
 ### 3.2 Server deploy (Linux qua Tailscale)
 
-Mục tiêu hiện tại của script server: **update OmniRoute + reconcile app auth/runtime + rollout HTTPS edge config** (build + sync deploy + restart `platform`/`omniroute`/`open-webui`/`openclaw-gateway`) và healthcheck.
+Mục tiêu hiện tại của script server: build toàn bộ app layer từ source workspace trên máy dev, upload image tar sang server, rollout `platform -> omniroute -> open-webui/openclaw`, rồi verify end-to-end.
 
 Chạy tại repo root (trên máy Mac):
 ```bash
-SERVER_SSH_PASS='***' bash ops/agent.sh deploy server
+bash ops/agent.sh deploy server
 ```
 
 Script `ops/deploy_server.sh` làm:
-1) Build `omniroute:intel` (`linux/amd64`, target `runner-base`) trên máy Mac.
-2) `docker save` → gzip thành tar.
-3) `rsync deploy/` lên server (không sync `deploy/env/stack.env`).
+1) Build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` trên máy Mac.
+2) `docker save` app images → gzip thành tar.
+3) Bundle `deploy/` rồi upload lên server (không sync `deploy/env/stack.env`).
 4) Trên server:
+   - reconcile env về source-built app tags
    - migrate env sang HTTPS mặc định (`ensure_https_env.sh`)
    - `stack.sh platform up -d` để generate cert + restart Traefik
+   - chờ `postgres-primary` + `redis` healthy
    - `bootstrap_openclaw.sh` để cập nhật allowed origins / trusted proxy / device-auth policy
-   - `docker load` image OmniRoute mới
-   - `stack.sh apps up -d --no-deps omniroute open-webui openclaw-gateway`
+   - `docker load` app image tar
+   - `stack.sh apps up -d --no-deps omniroute`
+   - chờ `omniroute` healthy
    - `bootstrap_app_clients.sh` để đồng bộ OmniRoute app keys và OpenWebUI/OpenClaw runtime config
+   - `stack.sh apps up -d --no-deps openclaw-cli`
 5) Healthcheck từ server qua HTTPS loopback-resolve:
    - `ENV_FILE=~/localagent/deploy/env/stack.env bash deploy/scripts/healthcheck.sh server`
 6) Smoke test từ server:
    - `ENV_FILE=~/localagent/deploy/env/stack.env bash deploy/scripts/smoke_stack.sh server`
 
 **SSH auth**
-- Script hiện dùng `sshpass` nếu server vẫn login bằng password.
-- Khuyến nghị chuyển sang SSH key-only để bỏ `SERVER_SSH_PASS`.
+- `SERVER_SSH_KEY` là đường chuẩn.
+- `SERVER_SSH_PASS` chỉ là fallback cho server cũ còn password login.
 
 ## 4) “CD” / Working directory trong CI
 

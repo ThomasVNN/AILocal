@@ -6,7 +6,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-$ROOT_DIR/deploy/env/stack.local.env}"
 EXAMPLE_ENV="$ROOT_DIR/deploy/env/stack.env.example"
 
-echo "[1/5] Review OmniRoute workspace"
+echo "[1/6] Review OmniRoute workspace"
 if [[ -d "$ROOT_DIR/OmniRoute/.git" ]]; then
   git -C "$ROOT_DIR/OmniRoute" log -1 --oneline || true
   if ! git -C "$ROOT_DIR/OmniRoute" diff --no-ext-diff --quiet HEAD --; then
@@ -19,7 +19,7 @@ else
   echo "WARN: OmniRoute is not a git repo at $ROOT_DIR/OmniRoute"
 fi
 
-echo "[2/5] Ensure local env exists: $LOCAL_ENV_FILE"
+echo "[2/6] Ensure local env exists: $LOCAL_ENV_FILE"
 if [[ ! -f "$LOCAL_ENV_FILE" ]]; then
   mkdir -p "$(dirname "$LOCAL_ENV_FILE")"
   cp "$EXAMPLE_ENV" "$LOCAL_ENV_FILE"
@@ -85,82 +85,6 @@ PY
   fi
 }
 
-build_local_image() {
-  local tag="$1"
-  local dockerfile="$2"
-  local context="$3"
-  shift 3
-  local requires_buildkit="0"
-  local prefer_buildx="${DEPLOY_LOCAL_PREFER_BUILDX:-0}"
-  local buildkit_progress="${BUILDKIT_PROGRESS:-plain}"
-  if rg -q -- '--mount=' "$dockerfile"; then
-    requires_buildkit="1"
-  fi
-
-  local buildx_cmd=(
-    docker buildx build
-    --platform linux/arm64
-    --progress "$buildkit_progress"
-    -t "$tag"
-    -f "$dockerfile"
-  )
-  local daemon_cmd=(
-    docker build
-    --platform linux/arm64
-    --progress "$buildkit_progress"
-    --build-arg TARGETARCH=arm64
-    -t "$tag"
-    -f "$dockerfile"
-  )
-
-  if (($# > 0)); then
-    buildx_cmd+=("$@")
-    daemon_cmd+=("$@")
-  fi
-
-  buildx_cmd+=("$context" --load)
-  daemon_cmd+=("$context")
-
-  if [[ "$prefer_buildx" == "1" ]]; then
-    if "${buildx_cmd[@]}"; then
-      return 0
-    fi
-    echo "WARN: buildx failed for $tag; retrying with daemon BuildKit" >&2
-    if DOCKER_BUILDKIT=1 "${daemon_cmd[@]}"; then
-      return 0
-    fi
-  else
-    if DOCKER_BUILDKIT=1 "${daemon_cmd[@]}"; then
-      return 0
-    fi
-    echo "WARN: daemon BuildKit failed for $tag; retrying with buildx" >&2
-    if "${buildx_cmd[@]}"; then
-      return 0
-    fi
-  fi
-
-  if [[ "$requires_buildkit" == "1" ]]; then
-    echo "ERROR: both daemon BuildKit and buildx failed for $tag, and $dockerfile requires BuildKit features." >&2
-    return 1
-  fi
-
-  echo "WARN: BuildKit paths failed for $tag; retrying with legacy builder" >&2
-  local legacy_cmd=(
-    docker build
-    --build-arg TARGETARCH=arm64
-    -t "$tag"
-    -f "$dockerfile"
-  )
-
-  if (($# > 0)); then
-    legacy_cmd+=("$@")
-  fi
-
-  legacy_cmd+=("$context")
-
-  DOCKER_BUILDKIT=0 "${legacy_cmd[@]}"
-}
-
 if [[ "$needs_init" == "1" ]]; then
   LA_DATA_ROOT="$ROOT_DIR/.localagent-data"
 
@@ -188,7 +112,9 @@ if [[ "$needs_init" == "1" ]]; then
   # Local images & platform (Apple Silicon).
   env_set "OMNIROUTE_IMAGE" "omniroute:local"
   env_set "OMNIROUTE_PLATFORM" "linux/arm64"
-  env_set "OPENCLAW_IMAGE" "ghcr.io/openclaw/openclaw:latest"
+  env_set "OPENWEBUI_IMAGE" "open-webui:local"
+  env_set "OPENWEBUI_PLATFORM" "linux/arm64"
+  env_set "OPENCLAW_IMAGE" "openclaw:local"
   env_set "OPENCLAW_PLATFORM" "linux/arm64"
 
   # Friendly default password for OmniRoute bootstrap (user should rotate).
@@ -212,76 +138,37 @@ if ! rg -q "^OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=" "$LOCAL_ENV_FILE"; then
   env_set "OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH" "true"
 fi
 
-OPENCLAW_IMAGE_CURRENT="$(sed -n 's/^OPENCLAW_IMAGE=//p' "$LOCAL_ENV_FILE" | tail -n 1)"
-DEPLOY_LOCAL_BUILD_OPENCLAW="${DEPLOY_LOCAL_BUILD_OPENCLAW:-0}"
-if [[ -z "$OPENCLAW_IMAGE_CURRENT" ]]; then
-  OPENCLAW_IMAGE_CURRENT="ghcr.io/openclaw/openclaw:latest"
-  env_set "OPENCLAW_IMAGE" "$OPENCLAW_IMAGE_CURRENT"
-fi
-if [[ "$OPENCLAW_IMAGE_CURRENT" == "openclaw:local" && "$DEPLOY_LOCAL_BUILD_OPENCLAW" != "1" ]]; then
-  OPENCLAW_IMAGE_CURRENT="ghcr.io/openclaw/openclaw:latest"
-  env_set "OPENCLAW_IMAGE" "$OPENCLAW_IMAGE_CURRENT"
-  env_set "OPENCLAW_PLATFORM" "linux/arm64"
-  echo "INFO: local deploy now defaults to prebuilt OpenClaw image; set DEPLOY_LOCAL_BUILD_OPENCLAW=1 to keep source builds."
-fi
+bash "$ROOT_DIR/deploy/scripts/reconcile_app_image_env.sh" local "$LOCAL_ENV_FILE"
 
 DEPLOY_LOCAL_STOP_FIRST="${DEPLOY_LOCAL_STOP_FIRST:-1}"
 if [[ "$DEPLOY_LOCAL_STOP_FIRST" == "1" ]]; then
-  echo "[2.5/5] Stop existing localagent stack (free memory)"
+  echo "[2.5/6] Stop existing localagent stack (free memory)"
   ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" apps down --remove-orphans || true
   ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" platform down --remove-orphans || true
 fi
 
-echo "[3/5] Build images (OmniRoute + OpenClaw)"
-OMNIROUTE_BUILD_NODE_OPTIONS="${OMNIROUTE_BUILD_NODE_OPTIONS:---max-old-space-size=3072}"
-OMNIROUTE_NEXT_BUILD_CPUS="${OMNIROUTE_NEXT_BUILD_CPUS:-2}"
-# Local machine may run behind TLS-intercept proxy (e.g., Charles/Tailscale setup).
-# Allow disabling strict npm TLS only for local image build; override to true if not needed.
-OMNIROUTE_BUILD_NPM_STRICT_SSL="${OMNIROUTE_BUILD_NPM_STRICT_SSL:-false}"
-# Same reason for node-gyp header downloads (nodejs.org) during native module fallback builds.
-OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="${OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED:-0}"
-build_local_image \
-  omniroute:local \
-  "$ROOT_DIR/OmniRoute/Dockerfile" \
-  "$ROOT_DIR/OmniRoute" \
-  --target runner-base \
-  --build-arg BUILD_NODE_OPTIONS="$OMNIROUTE_BUILD_NODE_OPTIONS" \
-  --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$OMNIROUTE_NEXT_BUILD_CPUS" \
-  --build-arg NPM_CONFIG_STRICT_SSL="$OMNIROUTE_BUILD_NPM_STRICT_SSL" \
-  --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED"
+echo "[3/6] Build app images from workspace source"
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/build_app_images.sh" omniroute open-webui openclaw
 
-if [[ "$DEPLOY_LOCAL_BUILD_OPENCLAW" == "1" || "$OPENCLAW_IMAGE_CURRENT" == "openclaw:local" ]]; then
-  OPENCLAW_BUILD_NPM_STRICT_SSL="${OPENCLAW_BUILD_NPM_STRICT_SSL:-false}"
-  OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="${OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED:-0}"
-  OPENCLAW_BUILD_CURL_INSECURE="${OPENCLAW_BUILD_CURL_INSECURE:-1}"
-  OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE="${OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE:-node:24-bookworm}"
-  OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE="${OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE:-node:24-bookworm-slim}"
-  build_local_image \
-    openclaw:local \
-    "$ROOT_DIR/openclaw/Dockerfile" \
-    "$ROOT_DIR/openclaw" \
-    --build-arg OPENCLAW_BUILD_NPM_STRICT_SSL="$OPENCLAW_BUILD_NPM_STRICT_SSL" \
-    --build-arg OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="$OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED" \
-    --build-arg OPENCLAW_BUILD_CURL_INSECURE="$OPENCLAW_BUILD_CURL_INSECURE" \
-    --build-arg OPENCLAW_NODE_BOOKWORM_IMAGE="$OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE" \
-    --build-arg OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="$OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE"
-else
-  echo "INFO: skipping OpenClaw source build; compose will use $OPENCLAW_IMAGE_CURRENT"
-fi
-
-echo "[4/5] Bring up stack"
+echo "[4/6] Bring up stack"
 LA_DATA_ROOT="$(sed -n 's/^LA_DATA_ROOT=//p' "$LOCAL_ENV_FILE" | tail -n 1)"
 bash "$ROOT_DIR/deploy/scripts/bootstrap_data_dirs.sh" "$LA_DATA_ROOT"
 ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/bootstrap_extra_ca.sh"
 ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" platform up -d
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/wait_for_service_health.sh" platform postgres-primary 180
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/wait_for_service_health.sh" platform redis 180
 
 # Seed OpenClaw Control UI allowlist before starting gateway (avoids crash-loop).
-ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/bootstrap_openclaw.sh" || true
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/bootstrap_openclaw.sh"
 
-ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" apps up -d
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" apps up -d --no-deps omniroute
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/wait_for_service_health.sh" apps omniroute 420
 ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/bootstrap_app_clients.sh"
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" apps up -d --no-deps openclaw-cli
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/wait_for_service_health.sh" apps open-webui 300
+ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/wait_for_service_health.sh" apps openclaw-gateway 300
 
-echo "[4.5/5] Refresh Traefik host port bindings"
+echo "[4.5/6] Refresh Traefik host port bindings"
 docker restart localagent-platform-traefik-1 >/dev/null
 sleep 3
 

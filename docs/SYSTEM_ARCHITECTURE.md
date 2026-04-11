@@ -310,12 +310,12 @@ ${LA_DATA_ROOT}/
 ### Entry points chuẩn
 
 - local: `bash ops/agent.sh deploy local`
-- server: `SERVER_SSH_PASS='***' bash ops/agent.sh deploy server`
+- server: `bash ops/agent.sh deploy server`
 
 ### Những script quan trọng
 
-- [`ops/deploy_local.sh`](/Users/thont/Local/POC/LocalAgent/ops/deploy_local.sh): build arm64 image, tạo env local, up stack, reconcile runtime
-- [`ops/deploy_server.sh`](/Users/thont/Local/POC/LocalAgent/ops/deploy_server.sh): build amd64 OmniRoute, sync `deploy/`, rollout server
+- [`ops/deploy_local.sh`](/Users/thont/Local/POC/LocalAgent/ops/deploy_local.sh): build arm64 app images từ source, up `platform -> omniroute -> open-webui/openclaw`, reconcile runtime
+- [`ops/deploy_server.sh`](/Users/thont/Local/POC/LocalAgent/ops/deploy_server.sh): build amd64 app images từ source, upload image tar + deploy bundle, rollout server
 - [`deploy/scripts/stack.sh`](/Users/thont/Local/POC/LocalAgent/deploy/scripts/stack.sh): wrapper cho `docker compose`
 - [`deploy/scripts/bootstrap_tls.sh`](/Users/thont/Local/POC/LocalAgent/deploy/scripts/bootstrap_tls.sh): generate internal CA/cert cho Traefik
 - [`deploy/scripts/render_traefik_dynamic.sh`](/Users/thont/Local/POC/LocalAgent/deploy/scripts/render_traefik_dynamic.sh): render host routing

@@ -178,29 +178,26 @@ Script local hiện sẽ tự làm:
 1. tạo `deploy/env/stack.local.env` nếu chưa có
 2. generate local secrets
 3. ép local dùng `TRAEFIK_HTTPS_PORT=8443`
-4. build image local cho `omniroute`
-5. dùng prebuilt `OpenClaw` image mặc định; chỉ build source nếu bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+4. reconcile local app image tags về `omniroute:local`, `open-webui:local`, `openclaw:local`
+5. build đủ 3 app image trực tiếp từ source workspace
 6. tạo data directories dưới `.localagent-data/`
 7. bootstrap cert nội bộ và Traefik dynamic config
-8. bootstrap OpenClaw security/origin
-9. start `platform`
-10. start `apps`
-11. reconcile app keys/runtime config
-12. healthcheck
-13. smoke test
+8. start `platform`
+9. chờ `postgres-primary` và `redis` healthy
+10. bootstrap OpenClaw security/origin
+11. start `omniroute` và chờ healthy
+12. reconcile app keys/runtime config, từ đó mới create/restart `open-webui` và `openclaw-gateway`
+13. start `openclaw-cli`
+14. healthcheck
+15. smoke test
 
 Local default hiện tại:
 
 - `OmniRoute`: build từ source trong workspace
-- `OpenClaw`: dùng `ghcr.io/openclaw/openclaw:latest`
+- `OpenWebUI`: build từ source trong workspace
+- `OpenClaw`: build từ source trong workspace
 
-Nếu cần build `OpenClaw` từ source local:
-
-```bash
-DEPLOY_LOCAL_BUILD_OPENCLAW=1 bash ops/agent.sh deploy local
-```
-
-Khi build source `OpenClaw`, local deploy ưu tiên daemon BuildKit và in `plain progress` để log dễ đọc hơn. Nhánh này đòi hỏi base images `node:24-bookworm` và `node:24-bookworm-slim` phải pull được hoặc đã có sẵn local.
+App layer không còn chấp nhận `docker compose pull`. Nếu image app chưa tồn tại local, operator phải build lại từ source bằng `bash ops/agent.sh deploy local` hoặc `ENV_FILE=... bash deploy/scripts/build_app_images.sh`.
 
 Khi xong, các URL local chuẩn là:
 
@@ -217,12 +214,6 @@ Khi xong, các URL local chuẩn là:
 bash ops/agent.sh deploy local
 ```
 
-Nếu cần build lại `OpenClaw` từ source ở lượt redeploy:
-
-```bash
-DEPLOY_LOCAL_BUILD_OPENCLAW=1 bash ops/agent.sh deploy local
-```
-
 ### 7.2 Restart từng layer
 
 ```bash
@@ -236,6 +227,14 @@ ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps open-webui
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway openclaw-cli
+```
+
+Nếu service app chưa có local image mới, build lại trước:
+
+```bash
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh omniroute
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh open-webui
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh openclaw
 ```
 
 ### 7.4 Khi nào phải chạy lại bootstrap
@@ -306,17 +305,27 @@ Bước này sẽ:
 bash deploy/scripts/bootstrap_openclaw.sh
 ```
 
-### 8.6 Start apps
+### 8.6 Rollout app layer từ source
+
+Khuyến nghị: chạy từ máy dev/build host:
 
 ```bash
-bash deploy/scripts/stack.sh apps up -d
+bash ops/agent.sh deploy server
+```
+
+Nếu server cũng giữ full source checkout và bạn chủ động build trực tiếp trên server:
+
+```bash
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/build_app_images.sh omniroute open-webui openclaw
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/wait_for_service_health.sh apps omniroute 420
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/bootstrap_app_clients.sh
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-cli
 ```
 
 ### 8.7 Reconcile app runtime
 
-```bash
-bash deploy/scripts/bootstrap_app_clients.sh
-```
+`bootstrap_app_clients.sh` là bước bắt buộc sau khi đổi app image, đổi key, hoặc rollout OmniRoute mới.
 
 ### 8.8 Verify server
 
@@ -330,28 +339,32 @@ ENV_FILE=deploy/env/stack.env bash deploy/scripts/smoke_stack.sh server
 Entry point hiện tại:
 
 ```bash
-SERVER_SSH_PASS='***' bash ops/agent.sh deploy server
+bash ops/agent.sh deploy server
 ```
 
 Script hiện sẽ:
 
-1. build `omniroute:intel` trên máy dev
-2. sync `deploy/` lên server
-3. ensure HTTPS env trên server
-4. start/reconcile `platform`
-5. bootstrap OpenClaw config
-6. load image OmniRoute mới
-7. restart `omniroute`, `open-webui`, `openclaw-gateway`
-8. reconcile app auth/runtime
-9. healthcheck
-10. smoke test
+1. build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` trên máy dev từ source workspace hiện tại
+2. đóng gói `deploy/` và image tar rồi upload lên server
+3. reconcile remote env về source-built app tags
+4. ensure HTTPS env trên server
+5. start/reconcile `platform`
+6. bootstrap OpenClaw config
+7. `docker load` app image tar trên server
+8. start `omniroute` trước và chờ healthy
+9. reconcile app auth/runtime, từ đó mới create/restart `open-webui` và `openclaw-gateway`
+10. start `openclaw-cli`
+11. healthcheck
+12. smoke test
 
 Các biến có thể override:
 
 - `SERVER_REMOTE`
 - `SERVER_DIR`
 - `SERVER_ENV_FILE`
+- `SERVER_SSH_KEY`
 - `SERVER_SSH_PASS`
+- `SERVER_STRICT_HOST_KEY_CHECKING`
 
 Ví dụ:
 
@@ -359,7 +372,7 @@ Ví dụ:
 SERVER_REMOTE='user@server' \
 SERVER_DIR='~/localagent' \
 SERVER_ENV_FILE='~/localagent/deploy/env/stack.env' \
-SERVER_SSH_PASS='***' \
+SERVER_SSH_KEY="$HOME/.ssh/id_ed25519" \
 bash ops/agent.sh deploy server
 ```
 
@@ -419,14 +432,15 @@ sudo -E bash deploy/scripts/backup_snapshot.sh
 
 ### 11.2 Rollback nhanh
 
-Hiện rollback chủ yếu theo image/tag:
+Rollback chuẩn:
 
-1. đổi image/tag trong env
+1. `docker load` lại image tar cũ với đúng source-built tag
 2. restart đúng service
 
 Ví dụ:
 
 ```bash
+docker load < artifacts/images/archives/localagent-app-images.tar
 ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
 ```
 
@@ -480,33 +494,31 @@ Chạy lại tối thiểu:
 ```bash
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/ensure_https_env.sh deploy/env/stack.local.env
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh platform up -d
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh platform postgres-primary 180
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh platform redis 180
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_openclaw.sh
-ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway omniroute open-webui
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh apps omniroute 420
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_app_clients.sh
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-cli
 ```
 
 ### Docker build/pull local bị treo ở bước resolve image
 
 Luồng local hiện tối ưu theo hướng:
 
-- `OmniRoute` build bằng daemon BuildKit
-- `OpenClaw` mặc định dùng prebuilt image
-- `OpenClaw` source build chỉ dùng khi bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+- cả `OmniRoute`, `OpenWebUI`, `OpenClaw` đều build từ source workspace
+- app layer không cho `pull`
+- deploy ưu tiên daemon BuildKit và log `plain progress`
 
 Nếu Docker daemon vẫn bị treo khi resolve image:
 
 1. dừng deploy đang chạy
-2. pre-pull hoặc `docker load` trước các image cần thiết
+2. xác nhận base images/dependency registry truy cập được, hoặc preload base image cần thiết
 3. chạy lại với log plain để dễ triage
 
 ```bash
 BUILDKIT_PROGRESS=plain bash ops/agent.sh deploy local
-```
-
-Nếu buộc phải build `OpenClaw` từ source:
-
-```bash
-DEPLOY_LOCAL_BUILD_OPENCLAW=1 BUILDKIT_PROGRESS=plain bash ops/agent.sh deploy local
 ```
 
 ## 14. Tài liệu liên quan

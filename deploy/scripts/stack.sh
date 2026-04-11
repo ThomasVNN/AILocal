@@ -16,7 +16,7 @@ Usage:
 Examples:
   $0 platform up -d
   $0 apps up -d
-  $0 apps pull open-webui
+  $0 apps build omniroute open-webui openclaw-gateway
   $0 apps up -d --no-deps open-webui
 
 Env:
@@ -38,6 +38,12 @@ fi
 
 target="$1"
 shift
+
+if [[ "$target" == "apps" && "${1:-}" == "pull" ]]; then
+  echo "Remote image pulls are disabled for layer2-apps." >&2
+  echo "Build app images from workspace source via ops/deploy_local.sh, ops/deploy_server.sh, or deploy/scripts/build_app_images.sh." >&2
+  exit 2
+fi
 
 case "$target" in
   platform)

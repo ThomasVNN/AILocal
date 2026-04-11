@@ -61,37 +61,37 @@ Thực tế script local sẽ:
 1. tạo/cập nhật `deploy/env/stack.local.env`
 2. ép local dùng `TRAEFIK_HTTPS_PORT=8443`
 3. chạy `ensure_https_env.sh`
-4. build `OmniRoute` local image
-5. mặc định dùng prebuilt `OpenClaw` image; chỉ build source khi `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
-6. bootstrap data dir
-7. bootstrap TLS
-8. render Traefik config
+4. reconcile app image contract về source-built local tags
+5. build `omniroute:local`, `open-webui:local`, `openclaw:local` từ source workspace
+6. bootstrap data dir + TLS + extra CA
+7. up `platform`
+8. chờ `postgres-primary` và `redis` healthy
 9. bootstrap OpenClaw config
-10. up stack
-11. reconcile OpenWebUI/OpenClaw app auth/runtime
-12. healthcheck
-13. smoke test end-to-end
-
-Local default:
-- `OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest`
-- local env cũ còn `OPENCLAW_IMAGE=openclaw:local` sẽ được migrate sang prebuilt image, trừ khi operator bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+10. up `omniroute` trước và chờ healthy
+11. chạy `bootstrap_app_clients.sh` để tạo/reconcile runtime config rồi mới bring up `open-webui` + `openclaw-gateway`
+12. up `openclaw-cli`
+13. healthcheck
+14. smoke test end-to-end
 
 ### Server
 ```bash
-SERVER_SSH_PASS='***' bash ops/agent.sh deploy server
+bash ops/agent.sh deploy server
 ```
 
 Thực tế script server sẽ:
-1. build `omniroute:intel`
-2. sync `deploy/` lên server
-3. chạy `ensure_https_env.sh` trên server
-4. start/reconcile `platform`
-5. bootstrap OpenClaw config
-6. load image OmniRoute mới
-7. restart `omniroute` + `open-webui` + `openclaw-gateway`
-8. reconcile OpenWebUI/OpenClaw app auth/runtime
-9. healthcheck
-10. smoke test end-to-end
+1. build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` từ source workspace hiện tại
+2. đóng gói `deploy/` và app image tar rồi upload lên server
+3. reconcile remote env về source-built app tags
+4. chạy `ensure_https_env.sh` trên server
+5. start/reconcile `platform`
+6. chờ `postgres-primary` và `redis` healthy
+7. bootstrap OpenClaw config
+8. `docker load` app image tar
+9. start `omniroute` trước và chờ healthy
+10. chạy `bootstrap_app_clients.sh`, từ đó mới create/restart `open-webui` + `openclaw-gateway`
+11. start `openclaw-cli`
+12. healthcheck
+13. smoke test end-to-end
 
 ## 5) App auth bootstrap specifics
 
@@ -146,9 +146,13 @@ thì cần chạy lại tối thiểu:
 ```bash
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/ensure_https_env.sh deploy/env/stack.local.env
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh platform up -d
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh platform postgres-primary 180
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh platform redis 180
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_openclaw.sh
-ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway omniroute open-webui
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/wait_for_service_health.sh apps omniroute 420
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_app_clients.sh
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-cli
 ```
 
 ## 8) Endpoints chuẩn hiện tại
