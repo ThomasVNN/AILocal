@@ -178,15 +178,29 @@ Script local hiện sẽ tự làm:
 1. tạo `deploy/env/stack.local.env` nếu chưa có
 2. generate local secrets
 3. ép local dùng `TRAEFIK_HTTPS_PORT=8443`
-4. build image local cho `omniroute` và `openclaw`
-5. tạo data directories dưới `.localagent-data/`
-6. bootstrap cert nội bộ và Traefik dynamic config
-7. bootstrap OpenClaw security/origin
-8. start `platform`
-9. start `apps`
-10. reconcile app keys/runtime config
-11. healthcheck
-12. smoke test
+4. build image local cho `omniroute`
+5. dùng prebuilt `OpenClaw` image mặc định; chỉ build source nếu bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+6. tạo data directories dưới `.localagent-data/`
+7. bootstrap cert nội bộ và Traefik dynamic config
+8. bootstrap OpenClaw security/origin
+9. start `platform`
+10. start `apps`
+11. reconcile app keys/runtime config
+12. healthcheck
+13. smoke test
+
+Local default hiện tại:
+
+- `OmniRoute`: build từ source trong workspace
+- `OpenClaw`: dùng `ghcr.io/openclaw/openclaw:latest`
+
+Nếu cần build `OpenClaw` từ source local:
+
+```bash
+DEPLOY_LOCAL_BUILD_OPENCLAW=1 bash ops/agent.sh deploy local
+```
+
+Khi build source `OpenClaw`, local deploy ưu tiên daemon BuildKit và in `plain progress` để log dễ đọc hơn. Nhánh này đòi hỏi base images `node:24-bookworm` và `node:24-bookworm-slim` phải pull được hoặc đã có sẵn local.
 
 Khi xong, các URL local chuẩn là:
 
@@ -201,6 +215,12 @@ Khi xong, các URL local chuẩn là:
 
 ```bash
 bash ops/agent.sh deploy local
+```
+
+Nếu cần build lại `OpenClaw` từ source ở lượt redeploy:
+
+```bash
+DEPLOY_LOCAL_BUILD_OPENCLAW=1 bash ops/agent.sh deploy local
 ```
 
 ### 7.2 Restart từng layer
@@ -463,6 +483,30 @@ ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh platform up -d
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_openclaw.sh
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway omniroute open-webui
 ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/bootstrap_app_clients.sh
+```
+
+### Docker build/pull local bị treo ở bước resolve image
+
+Luồng local hiện tối ưu theo hướng:
+
+- `OmniRoute` build bằng daemon BuildKit
+- `OpenClaw` mặc định dùng prebuilt image
+- `OpenClaw` source build chỉ dùng khi bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+
+Nếu Docker daemon vẫn bị treo khi resolve image:
+
+1. dừng deploy đang chạy
+2. pre-pull hoặc `docker load` trước các image cần thiết
+3. chạy lại với log plain để dễ triage
+
+```bash
+BUILDKIT_PROGRESS=plain bash ops/agent.sh deploy local
+```
+
+Nếu buộc phải build `OpenClaw` từ source:
+
+```bash
+DEPLOY_LOCAL_BUILD_OPENCLAW=1 BUILDKIT_PROGRESS=plain bash ops/agent.sh deploy local
 ```
 
 ## 14. Tài liệu liên quan

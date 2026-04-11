@@ -50,6 +50,16 @@ Local:
 bash ops/agent.sh deploy local
 ```
 
+Mặc định local deploy sẽ:
+- build `OmniRoute` từ source hiện tại
+- dùng prebuilt `OpenClaw` image để bootstrap nhanh và ít phụ thuộc Docker Hub hơn
+
+Nếu cần build `OpenClaw` từ source:
+
+```bash
+DEPLOY_LOCAL_BUILD_OPENCLAW=1 bash ops/agent.sh deploy local
+```
+
 Server update:
 
 ```bash

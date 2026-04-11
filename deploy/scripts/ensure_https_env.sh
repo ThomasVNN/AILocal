@@ -25,32 +25,26 @@ read_env_value() {
 env_set() {
   local key="$1"
   local value="$2"
-  python3 - "$ENV_FILE" "$key" "$value" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-key = sys.argv[2]
-value = sys.argv[3]
-prefix = key + "="
-
-lines = path.read_text(encoding="utf-8").splitlines(True)
-out = []
-replaced = False
-for line in lines:
-  if line.startswith(prefix) and not replaced:
-    out.append(prefix + value + "\n")
-    replaced = True
-  else:
-    out.append(line)
-
-if not replaced:
-  if out and not out[-1].endswith("\n"):
-    out[-1] = out[-1] + "\n"
-  out.append(prefix + value + "\n")
-
-path.write_text("".join(out), encoding="utf-8")
-PY
+  local tmp_file
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/localagent-env.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN {
+      prefix = key "="
+      replaced = 0
+    }
+    index($0, prefix) == 1 && replaced == 0 {
+      print prefix value
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (replaced == 0) {
+        print prefix value
+      }
+    }
+  ' "$ENV_FILE" > "$tmp_file"
+  mv "$tmp_file" "$ENV_FILE"
 }
 
 omniroute_host="$(read_env_value OMNIROUTE_HOST || true)"

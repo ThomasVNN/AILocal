@@ -8,8 +8,13 @@ EXAMPLE_ENV="$ROOT_DIR/deploy/env/stack.env.example"
 
 echo "[1/5] Review OmniRoute workspace"
 if [[ -d "$ROOT_DIR/OmniRoute/.git" ]]; then
-  git -C "$ROOT_DIR/OmniRoute" status --porcelain || true
   git -C "$ROOT_DIR/OmniRoute" log -1 --oneline || true
+  if ! git -C "$ROOT_DIR/OmniRoute" diff --no-ext-diff --quiet HEAD --; then
+    echo "WARN: OmniRoute workspace has tracked changes." >&2
+  fi
+  if [[ "${DEPLOY_LOCAL_REVIEW_WORKSPACE:-0}" == "1" ]]; then
+    git -C "$ROOT_DIR/OmniRoute" status --short || true
+  fi
 else
   echo "WARN: OmniRoute is not a git repo at $ROOT_DIR/OmniRoute"
 fi
@@ -28,32 +33,26 @@ fi
 env_set() {
   local key="$1"
   local value="$2"
-  python3 - "$LOCAL_ENV_FILE" "$key" "$value" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-key = sys.argv[2]
-value = sys.argv[3]
-
-lines = path.read_text(encoding="utf-8").splitlines(True)
-out = []
-replaced = False
-prefix = key + "="
-for line in lines:
-  if line.startswith(prefix) and not replaced:
-    out.append(prefix + value + "\n")
-    replaced = True
-  else:
-    out.append(line)
-
-if not replaced:
-  if out and not out[-1].endswith("\n"):
-    out[-1] = out[-1] + "\n"
-  out.append(prefix + value + "\n")
-
-path.write_text("".join(out), encoding="utf-8")
-PY
+  local tmp_file
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/localagent-env.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN {
+      prefix = key "="
+      replaced = 0
+    }
+    index($0, prefix) == 1 && replaced == 0 {
+      print prefix value
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (replaced == 0) {
+        print prefix value
+      }
+    }
+  ' "$LOCAL_ENV_FILE" > "$tmp_file"
+  mv "$tmp_file" "$LOCAL_ENV_FILE"
 }
 
 env_set "TRAEFIK_HTTPS_PORT" "8443"
@@ -91,25 +90,62 @@ build_local_image() {
   local dockerfile="$2"
   local context="$3"
   shift 3
-  local build_cmd=(
+  local requires_buildkit="0"
+  local prefer_buildx="${DEPLOY_LOCAL_PREFER_BUILDX:-0}"
+  local buildkit_progress="${BUILDKIT_PROGRESS:-plain}"
+  if rg -q -- '--mount=' "$dockerfile"; then
+    requires_buildkit="1"
+  fi
+
+  local buildx_cmd=(
     docker buildx build
     --platform linux/arm64
+    --progress "$buildkit_progress"
+    -t "$tag"
+    -f "$dockerfile"
+  )
+  local daemon_cmd=(
+    docker build
+    --platform linux/arm64
+    --progress "$buildkit_progress"
+    --build-arg TARGETARCH=arm64
     -t "$tag"
     -f "$dockerfile"
   )
 
   if (($# > 0)); then
-    build_cmd+=("$@")
+    buildx_cmd+=("$@")
+    daemon_cmd+=("$@")
   fi
 
-  build_cmd+=("$context" --load)
+  buildx_cmd+=("$context" --load)
+  daemon_cmd+=("$context")
 
-  if "${build_cmd[@]}"; then
-    return 0
+  if [[ "$prefer_buildx" == "1" ]]; then
+    if "${buildx_cmd[@]}"; then
+      return 0
+    fi
+    echo "WARN: buildx failed for $tag; retrying with daemon BuildKit" >&2
+    if DOCKER_BUILDKIT=1 "${daemon_cmd[@]}"; then
+      return 0
+    fi
+  else
+    if DOCKER_BUILDKIT=1 "${daemon_cmd[@]}"; then
+      return 0
+    fi
+    echo "WARN: daemon BuildKit failed for $tag; retrying with buildx" >&2
+    if "${buildx_cmd[@]}"; then
+      return 0
+    fi
   fi
 
-  echo "WARN: buildx failed for $tag; retrying with classic builder + local cache" >&2
-  local fallback_cmd=(
+  if [[ "$requires_buildkit" == "1" ]]; then
+    echo "ERROR: both daemon BuildKit and buildx failed for $tag, and $dockerfile requires BuildKit features." >&2
+    return 1
+  fi
+
+  echo "WARN: BuildKit paths failed for $tag; retrying with legacy builder" >&2
+  local legacy_cmd=(
     docker build
     --build-arg TARGETARCH=arm64
     -t "$tag"
@@ -117,12 +153,12 @@ build_local_image() {
   )
 
   if (($# > 0)); then
-    fallback_cmd+=("$@")
+    legacy_cmd+=("$@")
   fi
 
-  fallback_cmd+=("$context")
+  legacy_cmd+=("$context")
 
-  DOCKER_BUILDKIT=0 "${fallback_cmd[@]}"
+  DOCKER_BUILDKIT=0 "${legacy_cmd[@]}"
 }
 
 if [[ "$needs_init" == "1" ]]; then
@@ -152,7 +188,7 @@ if [[ "$needs_init" == "1" ]]; then
   # Local images & platform (Apple Silicon).
   env_set "OMNIROUTE_IMAGE" "omniroute:local"
   env_set "OMNIROUTE_PLATFORM" "linux/arm64"
-  env_set "OPENCLAW_IMAGE" "openclaw:local"
+  env_set "OPENCLAW_IMAGE" "ghcr.io/openclaw/openclaw:latest"
   env_set "OPENCLAW_PLATFORM" "linux/arm64"
 
   # Friendly default password for OmniRoute bootstrap (user should rotate).
@@ -174,6 +210,19 @@ fi
 
 if ! rg -q "^OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=" "$LOCAL_ENV_FILE"; then
   env_set "OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH" "true"
+fi
+
+OPENCLAW_IMAGE_CURRENT="$(sed -n 's/^OPENCLAW_IMAGE=//p' "$LOCAL_ENV_FILE" | tail -n 1)"
+DEPLOY_LOCAL_BUILD_OPENCLAW="${DEPLOY_LOCAL_BUILD_OPENCLAW:-0}"
+if [[ -z "$OPENCLAW_IMAGE_CURRENT" ]]; then
+  OPENCLAW_IMAGE_CURRENT="ghcr.io/openclaw/openclaw:latest"
+  env_set "OPENCLAW_IMAGE" "$OPENCLAW_IMAGE_CURRENT"
+fi
+if [[ "$OPENCLAW_IMAGE_CURRENT" == "openclaw:local" && "$DEPLOY_LOCAL_BUILD_OPENCLAW" != "1" ]]; then
+  OPENCLAW_IMAGE_CURRENT="ghcr.io/openclaw/openclaw:latest"
+  env_set "OPENCLAW_IMAGE" "$OPENCLAW_IMAGE_CURRENT"
+  env_set "OPENCLAW_PLATFORM" "linux/arm64"
+  echo "INFO: local deploy now defaults to prebuilt OpenClaw image; set DEPLOY_LOCAL_BUILD_OPENCLAW=1 to keep source builds."
 fi
 
 DEPLOY_LOCAL_STOP_FIRST="${DEPLOY_LOCAL_STOP_FIRST:-1}"
@@ -201,22 +250,27 @@ build_local_image \
   --build-arg NPM_CONFIG_STRICT_SSL="$OMNIROUTE_BUILD_NPM_STRICT_SSL" \
   --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED"
 
-build_local_image \
-  openclaw:local \
-  "$ROOT_DIR/openclaw/Dockerfile" \
-  "$ROOT_DIR/openclaw"
+if [[ "$DEPLOY_LOCAL_BUILD_OPENCLAW" == "1" || "$OPENCLAW_IMAGE_CURRENT" == "openclaw:local" ]]; then
+  OPENCLAW_BUILD_NPM_STRICT_SSL="${OPENCLAW_BUILD_NPM_STRICT_SSL:-false}"
+  OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="${OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED:-0}"
+  OPENCLAW_BUILD_CURL_INSECURE="${OPENCLAW_BUILD_CURL_INSECURE:-1}"
+  OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE="${OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE:-node:24-bookworm}"
+  OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE="${OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE:-node:24-bookworm-slim}"
+  build_local_image \
+    openclaw:local \
+    "$ROOT_DIR/openclaw/Dockerfile" \
+    "$ROOT_DIR/openclaw" \
+    --build-arg OPENCLAW_BUILD_NPM_STRICT_SSL="$OPENCLAW_BUILD_NPM_STRICT_SSL" \
+    --build-arg OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="$OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED" \
+    --build-arg OPENCLAW_BUILD_CURL_INSECURE="$OPENCLAW_BUILD_CURL_INSECURE" \
+    --build-arg OPENCLAW_NODE_BOOKWORM_IMAGE="$OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE" \
+    --build-arg OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="$OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE"
+else
+  echo "INFO: skipping OpenClaw source build; compose will use $OPENCLAW_IMAGE_CURRENT"
+fi
 
 echo "[4/5] Bring up stack"
-LA_DATA_ROOT="$(python3 - "$LOCAL_ENV_FILE" <<'PY'
-import sys
-from pathlib import Path
-path = Path(sys.argv[1])
-for line in path.read_text(encoding="utf-8").splitlines():
-  if line.startswith("LA_DATA_ROOT="):
-    print(line.split("=", 1)[1])
-    break
-PY
-)"
+LA_DATA_ROOT="$(sed -n 's/^LA_DATA_ROOT=//p' "$LOCAL_ENV_FILE" | tail -n 1)"
 bash "$ROOT_DIR/deploy/scripts/bootstrap_data_dirs.sh" "$LA_DATA_ROOT"
 ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/bootstrap_extra_ca.sh"
 ENV_FILE="$LOCAL_ENV_FILE" bash "$ROOT_DIR/deploy/scripts/stack.sh" platform up -d

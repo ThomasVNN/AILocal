@@ -61,15 +61,20 @@ Thực tế script local sẽ:
 1. tạo/cập nhật `deploy/env/stack.local.env`
 2. ép local dùng `TRAEFIK_HTTPS_PORT=8443`
 3. chạy `ensure_https_env.sh`
-4. build image local
-5. bootstrap data dir
-6. bootstrap TLS
-7. render Traefik config
-8. bootstrap OpenClaw config
-9. up stack
-10. reconcile OpenWebUI/OpenClaw app auth/runtime
-11. healthcheck
-12. smoke test end-to-end
+4. build `OmniRoute` local image
+5. mặc định dùng prebuilt `OpenClaw` image; chỉ build source khi `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
+6. bootstrap data dir
+7. bootstrap TLS
+8. render Traefik config
+9. bootstrap OpenClaw config
+10. up stack
+11. reconcile OpenWebUI/OpenClaw app auth/runtime
+12. healthcheck
+13. smoke test end-to-end
+
+Local default:
+- `OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest`
+- local env cũ còn `OPENCLAW_IMAGE=openclaw:local` sẽ được migrate sang prebuilt image, trừ khi operator bật `DEPLOY_LOCAL_BUILD_OPENCLAW=1`
 
 ### Server
 ```bash
