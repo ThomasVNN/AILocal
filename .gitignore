@@ -1,2 +1,15 @@
 .idea/*
 .localagent-data/*
+.nstack-data/*
+.DS_Store
+
+# Workspace source repos (kept as separate git repos, not tracked here)
+OmniRoute/
+openclaw/
+open-webui/
+claude-code/
+OmniRoute-merge/
+
+# NeuroStack brand secrets (gitignored, generated per machine)
+deploy/env/nstack.local.env
+deploy/env/nstack.server.env

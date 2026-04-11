@@ -1,0 +1,205 @@
+name: neurostack-apps
+
+# NeuroStack — Layer 2 Compute Apps
+# Brand: neurostack (isolated từ localagent brand)
+# OmniRouter = Central LLM Gateway (tất cả traffic đi qua đây)
+# OpenWebUI  = Chat UI cho end users
+# OpenClaw   = Automation gateway per user (shared GW, isolated data per user)
+
+services:
+  omnirouter:
+    image: ${NS_OMNIROUTER_IMAGE:-omnirouter:local}
+    platform: ${NS_OMNIROUTER_PLATFORM:-linux/arm64}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATA_DIR: /app/data
+      PORT: ${OMNIROUTER_PORT:-21128}
+      DASHBOARD_PORT: ${OMNIROUTER_DASHBOARD_PORT:-${OMNIROUTER_PORT:-21128}}
+      API_PORT: ${OMNIROUTER_API_PORT:-21129}
+      API_HOST: 0.0.0.0
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: ${OMNIROUTER_NODE_ENV:-production}
+      NEXT_PUBLIC_BASE_URL: ${OMNIROUTER_PUBLIC_URL:-https://${OMNIROUTER_HOST:-router.nstack.local}}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/env/nstack.local.env}
+      API_KEY_SECRET: ${API_KEY_SECRET:?set API_KEY_SECRET in deploy/env/nstack.local.env}
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD:?set INITIAL_PASSWORD in deploy/env/nstack.local.env}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-sqlite}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:?set STORAGE_ENCRYPTION_KEY in deploy/env/nstack.local.env}
+      STORAGE_ENCRYPTION_KEY_VERSION: ${STORAGE_ENCRYPTION_KEY_VERSION:-v1}
+      MACHINE_ID_SALT: ${MACHINE_ID_SALT:-neurostack-salt}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-false}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      NODE_EXTRA_CA_CERTS: /app/extra-ca/extra-ca.pem
+    volumes:
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/omnirouter/data:/app/data
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/omnirouter/logs:/app/logs
+      - ${NS_DATA_ROOT:-/data/neurostack}/platform/proxy/extra-ca/extra-ca.pem:/app/extra-ca/extra-ca.pem:ro
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=neurostack_edge
+      # Dashboard UI
+      - traefik.http.routers.ns-omnirouter-dashboard.rule=Host(`${OMNIROUTER_HOST:-router.nstack.local}`)
+      - traefik.http.routers.ns-omnirouter-dashboard.entrypoints=web
+      - traefik.http.routers.ns-omnirouter-dashboard.middlewares=ns-secure-headers@file,ns-ratelimit@file
+      - traefik.http.routers.ns-omnirouter-dashboard.service=ns-omnirouter-dashboard
+      - traefik.http.services.ns-omnirouter-dashboard.loadbalancer.server.port=${OMNIROUTER_DASHBOARD_PORT:-${OMNIROUTER_PORT:-21128}}
+      # API endpoint (/v1) — tất cả apps LLM call vào đây
+      - traefik.http.routers.ns-omnirouter-api.rule=Host(`${OMNIROUTER_API_HOST:-api.nstack.local}`)
+      - traefik.http.routers.ns-omnirouter-api.entrypoints=web
+      - traefik.http.routers.ns-omnirouter-api.middlewares=ns-secure-headers@file,ns-ratelimit@file
+      - traefik.http.routers.ns-omnirouter-api.service=ns-omnirouter-api
+      - traefik.http.services.ns-omnirouter-api.loadbalancer.server.port=${OMNIROUTER_API_PORT:-21129}
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${OPENWEBUI_TAG:-main}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - omnirouter
+    environment:
+      DATA_DIR: /app/backend/data
+      ENABLE_OLLAMA_API: "False"
+      ENABLE_OPENAI_API: "True"
+      # Tất cả LLM calls đi qua OmniRouter
+      OPENAI_API_BASE_URL: http://omnirouter:${OMNIROUTER_API_PORT:-21129}/v1
+      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY}
+      DATABASE_URL: ${OPENWEBUI_DATABASE_URL}
+      DATABASE_SCHEMA: ${OPENWEBUI_DATABASE_SCHEMA:-public}
+      REDIS_URL: ${OPENWEBUI_REDIS_URL}
+      REDIS_KEY_PREFIX: ${OPENWEBUI_REDIS_KEY_PREFIX:-ns-open-webui}
+      WEBSOCKET_MANAGER: redis
+      WEBSOCKET_REDIS_URL: ${OPENWEBUI_WEBSOCKET_REDIS_URL}
+      STORAGE_PROVIDER: s3
+      S3_ENDPOINT_URL: ${OPENWEBUI_S3_ENDPOINT_URL}
+      S3_ACCESS_KEY_ID: ${OPENWEBUI_S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${OPENWEBUI_S3_SECRET_ACCESS_KEY}
+      S3_BUCKET_NAME: ${OPENWEBUI_S3_BUCKET_NAME:-nstack-webui}
+      S3_REGION_NAME: ${OPENWEBUI_S3_REGION_NAME:-us-east-1}
+      S3_ADDRESSING_STYLE: ${OPENWEBUI_S3_ADDRESSING_STYLE:-path}
+      ENABLE_WEBSOCKET_SUPPORT: "True"
+    volumes:
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/open-webui/runtime:/app/backend/data
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=neurostack_edge
+      - traefik.http.routers.ns-openwebui.rule=Host(`${OPENWEBUI_HOST:-chat.nstack.local}`)
+      - traefik.http.routers.ns-openwebui.entrypoints=web
+      - traefik.http.routers.ns-openwebui.middlewares=ns-secure-headers@file,ns-ratelimit@file
+      - traefik.http.services.ns-openwebui.loadbalancer.server.port=8080
+
+  openclaw-gateway:
+    image: ${NS_OPENCLAW_IMAGE:-openclaw:local}
+    platform: ${NS_OPENCLAW_PLATFORM:-linux/arm64}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - omnirouter
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      # Tất cả LLM calls đi qua OmniRouter
+      OPENAI_BASE_URL: http://omnirouter:${OMNIROUTER_API_PORT:-21129}/v1
+      OPENAI_API_BASE_URL: http://omnirouter:${OMNIROUTER_API_PORT:-21129}/v1
+      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY}
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+        "--allow-unconfigured"
+      ]
+    volumes:
+      # Per-user isolation: config/users/{userId}/ và workspace/{userId}/
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/openclaw/config:/home/node/.openclaw
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/openclaw/workspace:/home/node/.openclaw/workspace
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=neurostack_edge
+      - traefik.http.routers.ns-openclaw.rule=Host(`${OPENCLAW_HOST:-claw.nstack.local}`)
+      - traefik.http.routers.ns-openclaw.entrypoints=web
+      - traefik.http.routers.ns-openclaw.middlewares=ns-secure-headers@file,ns-ratelimit@file
+      - traefik.http.services.ns-openclaw.loadbalancer.server.port=18789
+
+  openclaw-cli:
+    image: ${NS_OPENCLAW_IMAGE:-openclaw:local}
+    platform: ${NS_OPENCLAW_PLATFORM:-linux/arm64}
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - openclaw-gateway
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENAI_BASE_URL: http://omnirouter:${OMNIROUTER_API_PORT:-21129}/v1
+      OPENAI_API_BASE_URL: http://omnirouter:${OMNIROUTER_API_PORT:-21129}/v1
+      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY}
+      BROWSER: echo
+    volumes:
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/openclaw/config:/home/node/.openclaw
+      - ${NS_DATA_ROOT:-/data/neurostack}/apps/openclaw/workspace:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+
+networks:
+  platform:
+    name: neurostack_platform
+    external: true
+  edge:
+    name: neurostack_edge
+    external: true
