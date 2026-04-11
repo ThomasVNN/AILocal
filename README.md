@@ -11,6 +11,7 @@ Luồng chuẩn hiện tại:
 - Các provider Web2API (`chatgpt-web2api`, `perplexity-web2api`, `gemini-web2api`, `claude`) được quản lý tập trung trong OmniRoute.
 
 Tài liệu chi tiết:
+- `deploy/DEPLOYMENT_GUIDE.md` (guide chuẩn để cài, deploy, verify, backup, rollback)
 - `deploy/DEPLOY_KNOWLEDGE.md` (source of truth cho deploy runtime, generated files, endpoints)
 - `deploy/STACK_GUIDE.md` (kiến trúc, release từng service)
 - `deploy/SERVER_GUIDE.md` (cài đặt + vận hành trên server)
@@ -41,69 +42,29 @@ Nguyên tắc an toàn:
 - **Local (Mac):** `*.localagent.local` trỏ về `127.0.0.1`
 - **Server (Linux):** `*.localagent.server` trỏ về IP Tailscale của server (ví dụ `100.101.77.8`)
 
-## Deploy local (Mac M1)
-1) Thêm hostnames vào `/etc/hosts`:
+## Deploy nhanh
 
-```text
-127.0.0.1  router.localagent.local api.localagent.local chat.localagent.local openclaw.localagent.local s3.localagent.local minio.localagent.local traefik.localagent.local
-```
-
-2) Deploy (tự generate env + migrate HTTPS env + build images arm64 + up platform/apps + reconcile app config + healthcheck + smoke test):
+Local:
 
 ```bash
-cd <path-to-LocalAgent>
 bash ops/agent.sh deploy local
 ```
 
-Env local mặc định: `deploy/env/stack.local.env` (được tạo tự động nếu chưa có).
-
-## Deploy server (Linux Intel, qua Tailscale)
-### 1) Trên máy client (Mac) để truy cập UI qua domain
-Thêm hostnames vào `/etc/hosts`:
-
-```text
-100.101.77.8  router.localagent.server api.localagent.server chat.localagent.server openclaw.localagent.server s3.localagent.server minio.localagent.server traefik.localagent.server
-```
-
-### 2) Lần đầu setup stack trên server
-Làm theo `deploy/SERVER_GUIDE.md` (tạo `deploy/env/stack.env`, bootstrap data dir, up `platform` rồi `apps`).
-
-### 3) Update/redeploy nhanh
-Script này build image `linux/amd64`, sync `deploy/` (không sync secrets), migrate HTTPS env trên server, reconcile `platform` + `openclaw-gateway` + `omniroute` + `open-webui`, rồi chạy healthcheck + smoke test:
+Server update:
 
 ```bash
-cd <path-to-LocalAgent>
 SERVER_SSH_PASS='***' bash ops/agent.sh deploy server
 ```
 
-Yêu cầu trên máy client (Mac): có `sshpass` để SSH bằng password (khuyến nghị chuyển sang SSH key để bỏ bước này).
+Guide đầy đủ cho:
 
-Các biến quan trọng:
-- `SERVER_REMOTE` (default: `mzk-12-10@100.101.77.8`)
-- `SERVER_DIR` (default: `~/localagent`)
-- `SERVER_ENV_FILE` (default: `~/localagent/deploy/env/stack.env`)
+- prerequisites
+- `/etc/hosts`
+- env/secrets
+- first deploy local
+- first install server
+- partial restart
+- healthcheck / smoke test
+- backup / rollback
 
-## Healthcheck
-- Local:
-  - `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/healthcheck.sh local`
-- Server (chạy trên server):
-  - `ENV_FILE=deploy/env/stack.env bash deploy/scripts/healthcheck.sh server`
-
-## Smoke test
-- Local:
-  - `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/smoke_stack.sh local`
-- Server (chạy trên server):
-  - `ENV_FILE=deploy/env/stack.env bash deploy/scripts/smoke_stack.sh server`
-
-Smoke test xác nhận:
-- OmniRoute public catalog có model
-- OmniRoute có ít nhất 1 provider trung tâm đang active
-- OpenWebUI runtime đang trỏ về `http://omniroute:<port>/v1` và không còn key `bootstrap`
-- OpenClaw runtime đang trỏ về `http://omniroute:<port>/v1`
-- Đường chat trung tâm `client -> OmniRoute -> provider` trả kết quả thật
-
-## HTTPS / certificates
-- Server mặc định publish `80` và `443`; local macOS mặc định publish `80` và `8443`.
-- Cert nội bộ được generate tại `${LA_DATA_ROOT}/platform/proxy/traefik/certs`.
-- CA nội bộ nằm tại `${LA_DATA_ROOT}/platform/proxy/traefik/ca/ca.crt`; nếu muốn browser hết cảnh báo cert, trust CA này trên máy client.
-- Local trên macOS hiện dùng `8443` mặc định vì Tailscale system extension thường chiếm `443`, nên truy cập local bằng `https://<host>:8443`.
+xem tại `deploy/DEPLOYMENT_GUIDE.md`.

@@ -77,7 +77,7 @@ Khi chạy CI/CD từ máy build (Mac/dev hoặc runner tự-host), nên đặt:
 
 Tối thiểu cần:
 ```bash
-SERVER_SSH_PASS='***' bash ops/agent.sh deploy server
+SERVER_SSH_PASS='123513' bash ops/agent.sh deploy server
 ```
 
 ## 2.4 Variables CI (deploy local)

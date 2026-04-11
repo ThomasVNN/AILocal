@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+SERVER_SSH_PASS="123513"
 SERVER_REMOTE="${SERVER_REMOTE:-mzk-12-10@100.101.77.8}"
 SERVER_DIR="${SERVER_DIR:-~/localagent}"
 SERVER_ENV_FILE="${SERVER_ENV_FILE:-$SERVER_DIR/deploy/env/stack.env}"

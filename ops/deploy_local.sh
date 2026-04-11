@@ -186,13 +186,20 @@ fi
 echo "[3/5] Build images (OmniRoute + OpenClaw)"
 OMNIROUTE_BUILD_NODE_OPTIONS="${OMNIROUTE_BUILD_NODE_OPTIONS:---max-old-space-size=3072}"
 OMNIROUTE_NEXT_BUILD_CPUS="${OMNIROUTE_NEXT_BUILD_CPUS:-2}"
+# Local machine may run behind TLS-intercept proxy (e.g., Charles/Tailscale setup).
+# Allow disabling strict npm TLS only for local image build; override to true if not needed.
+OMNIROUTE_BUILD_NPM_STRICT_SSL="${OMNIROUTE_BUILD_NPM_STRICT_SSL:-false}"
+# Same reason for node-gyp header downloads (nodejs.org) during native module fallback builds.
+OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="${OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED:-0}"
 build_local_image \
   omniroute:local \
   "$ROOT_DIR/OmniRoute/Dockerfile" \
   "$ROOT_DIR/OmniRoute" \
   --target runner-base \
   --build-arg BUILD_NODE_OPTIONS="$OMNIROUTE_BUILD_NODE_OPTIONS" \
-  --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$OMNIROUTE_NEXT_BUILD_CPUS"
+  --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$OMNIROUTE_NEXT_BUILD_CPUS" \
+  --build-arg NPM_CONFIG_STRICT_SSL="$OMNIROUTE_BUILD_NPM_STRICT_SSL" \
+  --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED"
 
 build_local_image \
   openclaw:local \
