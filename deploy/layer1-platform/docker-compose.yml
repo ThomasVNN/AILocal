@@ -1,0 +1,162 @@
+name: localagent-platform
+
+services:
+  postgres-primary:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      POSTGRES_DB: ${POSTGRES_DB:-openwebui}
+      POSTGRES_USER: ${POSTGRES_USER:-localagent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/env/stack.env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/db/primary:/var/lib/postgresql/data
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/logs/postgres:/var/log/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-localagent} -d ${POSTGRES_DB:-openwebui}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - platform
+
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      POSTGRES_HOST: postgres-primary
+      POSTGRES_DB: ${POSTGRES_DB:-openwebui}
+      POSTGRES_USER: ${POSTGRES_USER:-localagent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/env/stack.env}
+      SCHEDULE: "${POSTGRES_BACKUP_SCHEDULE:-0 */6 * * *}"
+      BACKUP_KEEP_DAYS: ${POSTGRES_BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${POSTGRES_BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${POSTGRES_BACKUP_KEEP_MONTHS:-6}
+      HEALTHCHECK_PORT: 8080
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/backups/postgres:/backups
+    networks:
+      - platform
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/env/stack.env}
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/redis/data:/data
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/logs/redis:/var/log/redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - platform
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in deploy/env/stack.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in deploy/env/stack.env}
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/minio/data:/data
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/logs/minio:/var/log/minio
+    networks:
+      - platform
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=localagent_platform
+      - traefik.http.routers.minio-api.rule=Host(`${MINIO_API_HOST}`)
+      - traefik.http.routers.minio-api.entrypoints=web
+      - traefik.http.routers.minio-api.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.routers.minio-api.service=minio-api
+      - traefik.http.services.minio-api.loadbalancer.server.port=9000
+      - traefik.http.routers.minio-console.rule=Host(`${MINIO_CONSOLE_HOST}`)
+      - traefik.http.routers.minio-console.entrypoints=web
+      - traefik.http.routers.minio-console.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.routers.minio-console.service=minio-console
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    depends_on:
+      - minio
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        until mc alias set local http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"; do
+          sleep 2;
+        done;
+        mc mb --ignore-existing "local/${MINIO_BOOTSTRAP_BUCKET}";
+    networks:
+      - platform
+
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+      - "${TRAEFIK_DASHBOARD_PORT:-8088}:8080"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/proxy/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/proxy/traefik/certs:/etc/traefik/certs:ro
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/proxy/acme:/acme
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/logs/traefik:/var/log/traefik
+    networks:
+      edge:
+        aliases:
+          - ${TRAEFIK_DASHBOARD_HOST}
+          - ${OMNIROUTE_HOST}
+          - ${OMNIROUTE_API_HOST}
+          - ${OPENWEBUI_HOST}
+          - ${OPENCLAW_HOST}
+          - ${MINIO_API_HOST}
+          - ${MINIO_CONSOLE_HOST}
+      platform: {}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=localagent_edge
+      - traefik.http.routers.traefik.rule=Host(`${TRAEFIK_DASHBOARD_HOST}`)
+      - traefik.http.routers.traefik.entrypoints=web
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.middlewares=secure-headers@file,default-ratelimit@file
+
+networks:
+  platform:
+    name: localagent_platform
+    driver: bridge
+    internal: true
+  edge:
+    name: localagent_edge
+    driver: bridge

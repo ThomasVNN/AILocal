@@ -1,0 +1,50 @@
+POST /mcloud/mag/LoginWithSF HTTP/1.1
+Host: w3m.huawei.com
+Cookie: hwssot=14-25-C3-B0-B8-A4-67-9B-B9-08-CB-D1-DA-44-36-04; hwssotinter=14-25-C3-B0-B8-A4-67-9B-B9-08-CB-D1-DA-44-36-04; magot3=31654032330323; ztsg_ruuid=a10a7ab007858cab-6eea-41d9-923e-c328f8331c89; eplus_welink_manage=1125ac7d-e9ee-4439-afe9-2df03e320a3e; hwsso_login=V006fIUD9qMa74C2JTkmz4Sx7J6V_bZZNsbV_b9zhdhCWll3j3BmAvGZQKk1tWRe_bKauuEbj_aIx85QV3zWLojGd3hY93yEIYFZHk_ajsbntEJrWtwhDhPpHtN427o62hGyi1LkSuG_aj1OwgP5mVMZZ9_ajtZ8iHUgfekVfmUOEmbttAJg_aUTxkfipLJQVEay85SmVIeZJzFaWi0_bTf1y6zdMjvjNHMt5n_aJ5C64W4aNZQNPoUyeaup_b7V8MW9g2eLkPJg2ohx9VxLBjBDXnDA_a7gLfq04v8LpiCNCQEQnbvChVGTqZ_akzU5kebsiHmCvS4dHwIUA5p8HgzT7vdFhIZoxNc0unA_c_c; hwssot3=31654030067034; hwssotinter3=31654030067034; login_logFlag=in; login_sid=1D-13-72-A3-D8-AE-BC-DE-8E-C0-7E-D9-44-EA-88-E1-2A-F1-1D-9C-99-2D-CA-CE-3A-97-5A-9D-B5-28-97-E0-A2-2D-01-16-44-82-81-B1-66-7C-29-FE-EC-1D-83-26-BD-B0-89-4D-C4-54-80-37; login_uid=73-F6-F8-F7-8A-C6-3E-0B-73-9C-1E-A6-F5-94-F1-7C; suid=73-F6-F8-F7-8A-C6-3E-0B-73-9C-1E-A6-F5-94-F1-7C; x-wlk-Authorization=925b8ddf-c893-1fdb-c1f5-6a41303f90a7
+lang: en
+User-Agent: WeLink/5.79.18 (iPhone; iOS 17.6.1; Scale/3.00)
+traceId: WK-75750691-E665-4612-8829-FEA30B44F680
+nflag: 1
+deviceName: iPhone14,3
+appVersion: 5.79.18
+uuid: C9ADCAE2-21DD-49A5-9568-29437FCFF023
+Content-Length: 740
+osTarget: 1
+appName: WeLink
+Connection: keep-alive
+isp: --
+buildCode: 609
+Accept-Language: vi-VN;q=1, zh-Hans-VN;q=0.9, en-VN;q=0.8
+businessVersionCode: 609
+networkType: NRNSA
+Accept: */*
+Content-Type: application/x-www-form-urlencoded
+Accept-Encoding: gzip, deflate, br
+
+loginName=qPWqcxOuubERC7VEOBcXEGUyf5/oKDyxy6ypcXymNfMpXn5Y50N7nTAv8QP8miy9E0FuuBBz2D7trMPyFuqImIqHVNa3iTVU5QvxNvFY/WCbfxiyLvhaIYqmo1LVcqBBvrexHzVv5jGZZ2%2BQrRMgFY9I4km%2BHiPQDVIQ4hR0pr4%3D&password=AnaORAECiqsYpogwHrNy6NmesYxADUeBoADKH31RT6aZLc4RClKGaiOalGqvzn2rw3fvllQ4YQ5NrjBHB2m77X72Rz7VrQhd%2BzTdO%2BvLwEYmK/yghaOb1jHuPh/3zmP%2B5xfO171%2BJ4xK/U/cDFoaRG/kd%2BXpAMI5Zu3x96kmrcIoRz8xerBVHAS0IkR/vt/2d7Qi1QEnaiLTpDlUqhy5rjrxfygmfZG7Ano%2BSo8GZNxla0hCGLJFDHSqeoxCJJRjYJDtRPNzIezKWCZY9fObywQySXz0Ew6ecgbnLNaPAoX7IsYC/R2rLKbCz5kOiCotGnYvKf/F7oDZ7Mm2LyCmpyVFGkYVjIevtF4Q6Ur/jiZduub5WY50pHZqTGgpqUNPem1G48M/l35y37H6bFuhKT8pPF9HoS%2BdfIv6pI1WTpYnP/fr5khp5Nem3ocb0tG3pnDcov1h6aLlOLMkTdTmOvWvUlKFz4WPfiBmbFRGsLiY1qDK3H4eUctvgVH2MTYc&publicKeyFlag=1
+
+
+
+
+POST /mcloud/mag/ProxyForText/w3mbm-new/rest/mattend/punchCard?validateUser=false HTTP/1.1
+Host: w3m.huawei.com
+uuid: C9ADCAE2-21DD-49A5-9568-29437FCFF023
+Connection: keep-alive
+deviceName: iPhone14,3
+Accept: */*
+appName: WeLink
+appVersion: 5.79.18
+buildCode: 609
+Accept-Language: vi-VN;q=1, zh-Hans-VN;q=0.9, en-VN;q=0.8
+Accept-Encoding: gzip, deflate, br
+Content-Type: application/json
+businessVersionCode: 609
+osTarget: 1
+lang: en
+User-Agent: WeLink/5.79.18 (iPhone; iOS 17.6.1; Scale/3.00)
+traceId: WK-D84DB2EF-C307-4F4C-BC86-379C22C65FC6
+employeeType: 1
+Cookie: hwsso_login=V006NEbPdWkoMcEVre_a2M6EiOle4EeymYu5a8NMzZaYwl_aC2y1FOCjUQrtutdPZ1NgrC3hP3deQIdEsseKrYjuzRV6lLBAg6yrOqtjnOPSVhFkxqMmn1iQfKzeoxOfY2qcUwaHU_apa40uJ_aOfT5sSXI5XjoqAWUeYwaQkcqer7h6Mrg4GCi_aVyqyRmrTpQYOITBB9DPEzXw0LDU3g5WIs2JrguBYLc2RZtOwEbMUo9V_aBnbVKzgvnoo2s7BvluyFLMW1Cz_bA5u3GefkwW1TEMswVXgQO8wfkVJ6XPB0S7seTRUqnr_aT0CHMLfCMb7R_bMpyarWpumRBnO8puvFtpcUzJIfQ_c_c; hwssot3=31654116075616; login_logFlag=in; login_sid=43-A8-34-1F-33-B1-23-BD-31-22-37-D0-75-D5-34-CB-5E-CD-7E-6A-32-54-9A-DD-53-08-44-CB-81-6A-E0-F5-66-92-D1-25-25-2B-E4-F5-D0-BD-D4-DC-52-CA-AA-C9-BD-B0-89-4D-C4-54-80-37; login_uid=73-F6-F8-F7-8A-C6-3E-0B-73-9C-1E-A6-F5-94-F1-7C; suid=73-F6-F8-F7-8A-C6-3E-0B-73-9C-1E-A6-F5-94-F1-7C; x-wlk-Authorization=3f042b91-39df-1677-cf55-fd052ff360c4; hwssotinter3=31654116075616; eplus_welink_manage=565e1606-5f5e-40fe-afdd-5dcd93c6d708; magot3=31654116151711; hwssotinter=45-11-C0-1D-83-89-3C-97-D2-E5-AF-15-79-47-28-C6; hwssot=45-11-C0-1D-83-89-3C-97-D2-E5-AF-15-79-47-28-C6; JSESSIONID=B02ECD470D9B47E4333B3778132D50F03A6D5D6FA9EAC239
+Content-Length: 241
+
+{"locale":"en","deviceId":"C9ADCAE2-21DD-49A5-9568-29437FCFF023","meapip":"119.8.177.181","x":"106.701975","employeeNumber":"60116335","deviceType":"0","y":"10.777871","deviceVersionId":"17.6.1","ip":"172.20.10.3","deviceModel":"iPhone14,3"}

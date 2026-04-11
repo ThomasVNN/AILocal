@@ -1,0 +1,194 @@
+name: localagent-apps
+
+services:
+  omniroute:
+    image: ${OMNIROUTE_IMAGE:-omniroute:intel}
+    platform: ${OMNIROUTE_PLATFORM:-linux/amd64}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATA_DIR: /app/data
+      PORT: ${OMNIROUTE_PORT:-20128}
+      DASHBOARD_PORT: ${OMNIROUTE_DASHBOARD_PORT:-${OMNIROUTE_PORT:-20128}}
+      API_PORT: ${OMNIROUTE_API_PORT:-20129}
+      API_HOST: 0.0.0.0
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: ${OMNIROUTE_NODE_ENV:-production}
+      NEXT_PUBLIC_BASE_URL: ${OMNIROUTE_PUBLIC_URL:-https://${OMNIROUTE_HOST}}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/env/stack.env}
+      API_KEY_SECRET: ${API_KEY_SECRET:?set API_KEY_SECRET in deploy/env/stack.env}
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD:?set INITIAL_PASSWORD in deploy/env/stack.env}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-sqlite}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:?set STORAGE_ENCRYPTION_KEY in deploy/env/stack.env}
+      STORAGE_ENCRYPTION_KEY_VERSION: ${STORAGE_ENCRYPTION_KEY_VERSION:-v1}
+      MACHINE_ID_SALT: ${MACHINE_ID_SALT:-localagent-salt}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-false}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      NODE_EXTRA_CA_CERTS: /app/extra-ca/extra-ca.pem
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/omniroute/data:/app/data
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/omniroute/logs:/app/logs
+      - ${LA_DATA_ROOT:-/data/localagent}/platform/proxy/extra-ca/extra-ca.pem:/app/extra-ca/extra-ca.pem:ro
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=localagent_edge
+      - traefik.http.routers.omniroute-dashboard.rule=Host(`${OMNIROUTE_HOST}`)
+      - traefik.http.routers.omniroute-dashboard.entrypoints=web
+      - traefik.http.routers.omniroute-dashboard.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.routers.omniroute-dashboard.service=omniroute-dashboard
+      - traefik.http.services.omniroute-dashboard.loadbalancer.server.port=${OMNIROUTE_DASHBOARD_PORT:-${OMNIROUTE_PORT:-20128}}
+      - traefik.http.routers.omniroute-api.rule=Host(`${OMNIROUTE_API_HOST}`)
+      - traefik.http.routers.omniroute-api.entrypoints=web
+      - traefik.http.routers.omniroute-api.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.routers.omniroute-api.service=omniroute-api
+      - traefik.http.services.omniroute-api.loadbalancer.server.port=${OMNIROUTE_API_PORT:-20129}
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${OPENWEBUI_TAG:-main}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - omniroute
+    environment:
+      DATA_DIR: /app/backend/data
+      ENABLE_OLLAMA_API: "False"
+      ENABLE_OPENAI_API: "True"
+      OPENAI_API_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1
+      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY}
+      DATABASE_URL: ${OPENWEBUI_DATABASE_URL}
+      DATABASE_SCHEMA: ${OPENWEBUI_DATABASE_SCHEMA:-public}
+      REDIS_URL: ${OPENWEBUI_REDIS_URL}
+      REDIS_KEY_PREFIX: ${OPENWEBUI_REDIS_KEY_PREFIX:-open-webui}
+      WEBSOCKET_MANAGER: redis
+      WEBSOCKET_REDIS_URL: ${OPENWEBUI_WEBSOCKET_REDIS_URL}
+      STORAGE_PROVIDER: s3
+      S3_ENDPOINT_URL: ${OPENWEBUI_S3_ENDPOINT_URL}
+      S3_ACCESS_KEY_ID: ${OPENWEBUI_S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${OPENWEBUI_S3_SECRET_ACCESS_KEY}
+      S3_BUCKET_NAME: ${OPENWEBUI_S3_BUCKET_NAME}
+      S3_REGION_NAME: ${OPENWEBUI_S3_REGION_NAME:-us-east-1}
+      S3_ADDRESSING_STYLE: ${OPENWEBUI_S3_ADDRESSING_STYLE:-path}
+      ENABLE_WEBSOCKET_SUPPORT: "True"
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/open-webui/runtime:/app/backend/data
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=localagent_edge
+      - traefik.http.routers.openwebui.rule=Host(`${OPENWEBUI_HOST}`)
+      - traefik.http.routers.openwebui.entrypoints=web
+      - traefik.http.routers.openwebui.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.services.openwebui.loadbalancer.server.port=8080
+
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-openclaw:intel}
+    platform: ${OPENCLAW_PLATFORM:-linux/amd64}
+    restart: unless-stopped
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - omniroute
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENAI_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1
+      OPENAI_API_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1
+      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY}
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+        "--allow-unconfigured"
+      ]
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/openclaw/config:/home/node/.openclaw
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/openclaw/workspace:/home/node/.openclaw/workspace
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - platform
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=localagent_edge
+      - traefik.http.routers.openclaw.rule=Host(`${OPENCLAW_HOST}`)
+      - traefik.http.routers.openclaw.entrypoints=web
+      - traefik.http.routers.openclaw.middlewares=secure-headers@file,default-ratelimit@file
+      - traefik.http.services.openclaw.loadbalancer.server.port=18789
+
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-openclaw:intel}
+    platform: ${OPENCLAW_PLATFORM:-linux/amd64}
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - openclaw-gateway
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENAI_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1
+      OPENAI_API_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1
+      OPENAI_API_KEY: ${OPENCLAW_OPENAI_API_KEY}
+      BROWSER: echo
+    volumes:
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/openclaw/config:/home/node/.openclaw
+      - ${LA_DATA_ROOT:-/data/localagent}/apps/openclaw/workspace:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+
+networks:
+  platform:
+    name: localagent_platform
+    external: true
+  edge:
+    name: localagent_edge
+    external: true

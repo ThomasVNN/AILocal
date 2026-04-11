@@ -1,0 +1,166 @@
+http:
+  middlewares:
+    default-ratelimit:
+      rateLimit:
+        average: 120
+        burst: 60
+        period: 1s
+    secure-headers:
+      headers:
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        referrerPolicy: no-referrer
+    redirect-to-https:
+      redirectRegex:
+        regex: "^http://([^/]+)(/.*)?$"
+        replacement: "https://${1}:8443${2}"
+        permanent: true
+  routers:
+    traefik-http:
+      rule: "Host(`traefik.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: api@internal
+    traefik:
+      rule: "Host(`traefik.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: api@internal
+    omniroute-dashboard-http:
+      rule: "Host(`router.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: omniroute-dashboard
+    omniroute-dashboard:
+      rule: "Host(`router.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: omniroute-dashboard
+    omniroute-api-http:
+      rule: "Host(`api.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: omniroute-api
+    omniroute-api:
+      rule: "Host(`api.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: omniroute-api
+    openwebui-http:
+      rule: "Host(`chat.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: openwebui
+    openwebui:
+      rule: "Host(`chat.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: openwebui
+    openclaw-http:
+      rule: "Host(`openclaw.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: openclaw
+    openclaw:
+      rule: "Host(`openclaw.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: openclaw
+    minio-api-http:
+      rule: "Host(`s3.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: minio-api
+    minio-api:
+      rule: "Host(`s3.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: minio-api
+    minio-console-http:
+      rule: "Host(`minio.localagent.local`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: minio-console
+    minio-console:
+      rule: "Host(`minio.localagent.local`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: minio-console
+  services:
+    omniroute-dashboard:
+      loadBalancer:
+        servers:
+          - url: "http://omniroute:20128"
+    omniroute-api:
+      loadBalancer:
+        servers:
+          - url: "http://omniroute:20129"
+    openwebui:
+      loadBalancer:
+        servers:
+          - url: "http://open-webui:8080"
+    openclaw:
+      loadBalancer:
+        servers:
+          - url: "http://openclaw-gateway:18789"
+    minio-api:
+      loadBalancer:
+        servers:
+          - url: "http://minio:9000"
+    minio-console:
+      loadBalancer:
+        servers:
+          - url: "http://minio:9001"
+
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/tls.crt
+        keyFile: /etc/traefik/certs/tls.key
+  options:
+    default:
+      minVersion: VersionTLS12
