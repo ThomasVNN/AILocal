@@ -116,6 +116,8 @@ services:
           cpus: '0.5'
         reservations:
           memory: 64M
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/env/nstack.local.env}
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -126,7 +128,7 @@ services:
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/redis/data:/data
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/logs/redis:/var/log/redis
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
