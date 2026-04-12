@@ -109,21 +109,9 @@ fi
 ns_env_set "TRAEFIK_HTTPS_PORT" "9443"
 
 # ──────────────────────────────────────────────────────
-# [2] Stop existing NeuroStack stack to free memory
+# [2] Build app images FIRST (before stopping — minimizes downtime)
 # ──────────────────────────────────────────────────────
-DEPLOY_STOP_FIRST="${NS_DEPLOY_STOP_FIRST:-1}"
-if [[ "$DEPLOY_STOP_FIRST" == "1" ]]; then
-  echo "[2/7] Stop existing neurostack stack..."
-  ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/nstack_stack.sh" apps down --remove-orphans 2>/dev/null || true
-  ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/nstack_stack.sh" platform down --remove-orphans 2>/dev/null || true
-else
-  echo "[2/7] Skip stop (NS_DEPLOY_STOP_FIRST=0)"
-fi
-
-# ──────────────────────────────────────────────────────
-# [3] Build app images from source (custom forks)
-# ──────────────────────────────────────────────────────
-echo "[3/7] Build NeuroStack images from custom fork source..."
+echo "[2/7] Build NeuroStack images from custom fork source..."
 
 NS_OMNIROUTER_IMAGE="$(ns_env_get NS_OMNIROUTER_IMAGE)"
 NS_OMNIROUTER_PLATFORM="$(ns_env_get NS_OMNIROUTER_PLATFORM)"
@@ -138,6 +126,17 @@ export OPENCLAW_PLATFORM="$NS_OPENCLAW_PLATFORM"
 export ENV_FILE="$NS_ENV_FILE"
 
 bash "$DEPLOY_SCRIPTS/build_app_images.sh" omniroute openclaw
+
+# ──────────────────────────────────────────────────────
+# [3] Stop existing apps layer ONLY (platform stays up → ~30s downtime)
+# ──────────────────────────────────────────────────────
+DEPLOY_STOP_FIRST="${NS_DEPLOY_STOP_FIRST:-1}"
+if [[ "$DEPLOY_STOP_FIRST" == "1" ]]; then
+  echo "[3/7] Stop existing neurostack apps (platform stays up)..."
+  ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/nstack_stack.sh" apps down --remove-orphans 2>/dev/null || true
+else
+  echo "[3/7] Skip stop (NS_DEPLOY_STOP_FIRST=0)"
+fi
 
 # ──────────────────────────────────────────────────────
 # [4] Bootstrap data dirs + TLS + Platform (Layer 1)

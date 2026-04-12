@@ -137,8 +137,8 @@ build_omniroute() {
     --target "$(resolve_value OMNIROUTE_BUILD_TARGET 'runner-base')" \
     --build-arg BUILD_NODE_OPTIONS="$(resolve_value OMNIROUTE_BUILD_NODE_OPTIONS '--max-old-space-size=3072')" \
     --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$(resolve_value OMNIROUTE_NEXT_BUILD_CPUS '2')" \
-    --build-arg NPM_CONFIG_STRICT_SSL="$(resolve_value OMNIROUTE_BUILD_NPM_STRICT_SSL 'false')" \
-    --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '0')"
+    --build-arg NPM_CONFIG_STRICT_SSL="$(resolve_value OMNIROUTE_BUILD_NPM_STRICT_SSL 'true')" \
+    --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '1')"
 }
 
 build_openwebui() {
@@ -167,9 +167,9 @@ build_openclaw() {
     "$platform" \
     "$ROOT_DIR/openclaw/Dockerfile" \
     "$ROOT_DIR/openclaw" \
-    --build-arg OPENCLAW_BUILD_NPM_STRICT_SSL="$(resolve_value OPENCLAW_BUILD_NPM_STRICT_SSL 'false')" \
-    --build-arg OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '0')" \
-    --build-arg OPENCLAW_BUILD_CURL_INSECURE="$(resolve_value OPENCLAW_BUILD_CURL_INSECURE '1')" \
+    --build-arg OPENCLAW_BUILD_NPM_STRICT_SSL="$(resolve_value OPENCLAW_BUILD_NPM_STRICT_SSL 'true')" \
+    --build-arg OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OPENCLAW_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '1')" \
+    --build-arg OPENCLAW_BUILD_CURL_INSECURE="$(resolve_value OPENCLAW_BUILD_CURL_INSECURE '0')" \
     --build-arg OPENCLAW_NODE_BOOKWORM_IMAGE="$(resolve_value OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE 'node:24-bookworm')" \
     --build-arg OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="$(resolve_value OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE 'node:24-bookworm-slim')" \
     --build-arg OPENCLAW_VARIANT="$(resolve_value OPENCLAW_BUILD_VARIANT 'default')" \
