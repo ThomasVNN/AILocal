@@ -5,17 +5,37 @@ name: neurostack-apps
 # OmniRouter = Central LLM Gateway (tất cả traffic đi qua đây)
 # OpenWebUI  = Chat UI cho end users
 # OpenClaw   = Automation gateway per user (shared GW, isolated data per user)
+#
+# Resource profiles (controlled via NS_*_MEM_LIMIT env):
+#   dev   (M1 Mac 32GB):  generous limits for dev comfort
+#   uat   (Linux 8GB):    tight limits matching production
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+    tag: "neurostack/{{.Name}}"
 
 services:
   omnirouter:
     image: ${NS_OMNIROUTER_IMAGE:-omnirouter:local}
     platform: ${NS_OMNIROUTER_PLATFORM:-linux/arm64}
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *default-logging
     cap_drop:
       - NET_RAW
       - NET_ADMIN
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_OMNIROUTER_MEM_LIMIT:-1G}
+          cpus: '${NS_OMNIROUTER_CPU_LIMIT:-2.0}'
+        reservations:
+          memory: 256M
     environment:
       DATA_DIR: /app/data
       PORT: ${OMNIROUTER_PORT:-21128}
@@ -60,20 +80,30 @@ services:
       # API endpoint (/v1) — tất cả apps LLM call vào đây
       - traefik.http.routers.ns-omnirouter-api.rule=Host(`${OMNIROUTER_API_HOST:-api.nstack.local}`)
       - traefik.http.routers.ns-omnirouter-api.entrypoints=web
-      - traefik.http.routers.ns-omnirouter-api.middlewares=ns-secure-headers@file,ns-ratelimit@file
+      - traefik.http.routers.ns-omnirouter-api.middlewares=ns-secure-headers@file,ns-ratelimit@file,ns-retry@file
       - traefik.http.routers.ns-omnirouter-api.service=ns-omnirouter-api
       - traefik.http.services.ns-omnirouter-api.loadbalancer.server.port=${OMNIROUTER_API_PORT:-21129}
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:${OPENWEBUI_TAG:-main}
     restart: unless-stopped
+    stop_grace_period: 15s
+    logging: *default-logging
     cap_drop:
       - NET_RAW
       - NET_ADMIN
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_OPENWEBUI_MEM_LIMIT:-1G}
+          cpus: '${NS_OPENWEBUI_CPU_LIMIT:-2.0}'
+        reservations:
+          memory: 256M
     depends_on:
-      - omnirouter
+      omnirouter:
+        condition: service_healthy
     environment:
       DATA_DIR: /app/backend/data
       ENABLE_OLLAMA_API: "False"
@@ -97,6 +127,12 @@ services:
       ENABLE_WEBSOCKET_SUPPORT: "True"
     volumes:
       - ${NS_DATA_ROOT:-/data/neurostack}/apps/open-webui/runtime:/app/backend/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - platform
       - edge
@@ -112,13 +148,23 @@ services:
     image: ${NS_OPENCLAW_IMAGE:-openclaw:local}
     platform: ${NS_OPENCLAW_PLATFORM:-linux/arm64}
     restart: unless-stopped
+    stop_grace_period: 15s
+    logging: *default-logging
     cap_drop:
       - NET_RAW
       - NET_ADMIN
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_OPENCLAW_MEM_LIMIT:-768M}
+          cpus: '${NS_OPENCLAW_CPU_LIMIT:-1.5}'
+        reservations:
+          memory: 128M
     depends_on:
-      - omnirouter
+      omnirouter:
+        condition: service_healthy
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -171,13 +217,20 @@ services:
     image: ${NS_OPENCLAW_IMAGE:-openclaw:local}
     platform: ${NS_OPENCLAW_PLATFORM:-linux/arm64}
     network_mode: "service:openclaw-gateway"
+    logging: *default-logging
     cap_drop:
       - NET_RAW
       - NET_ADMIN
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_OPENCLAW_CLI_MEM_LIMIT:-256M}
+          cpus: '0.5'
     depends_on:
-      - openclaw-gateway
+      openclaw-gateway:
+        condition: service_healthy
     environment:
       HOME: /home/node
       TERM: xterm-256color

@@ -162,6 +162,15 @@ content = f"""http:
         average: 60
         burst: 120
         period: 1s
+    ns-retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+    ns-buffering:
+      buffering:
+        maxRequestBodyBytes: 10485760
+        maxResponseBodyBytes: 104857600
+        retryExpression: "IsNetworkError() && Attempts() < 3"
     ns-secure-headers:
       headers:
 {hsts_lines}        contentTypeNosniff: true
