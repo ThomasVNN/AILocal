@@ -2,6 +2,7 @@
 .localagent-data/*
 .nstack-data/*
 .DS_Store
+*.srl
 
 # Workspace source repos (kept as separate git repos, not tracked here)
 OmniRoute/
@@ -10,6 +11,8 @@ open-webui/
 claude-code/
 OmniRoute-merge/
 
-# NeuroStack brand secrets (gitignored, generated per machine)
+# Brand secrets (gitignored, generated per machine)
 deploy/env/nstack.local.env
 deploy/env/nstack.server.env
+deploy/env/stack.local.env
+deploy/env/stack.env

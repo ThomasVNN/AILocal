@@ -64,7 +64,10 @@ bash ops/agent.sh deploy nstack-local
 ### Server (192.168.1.65):
 
 ```bash
-SERVER_SSH_PASS='123513' bash ops/agent.sh deploy nstack-server
+# Set SSH credentials via env (do NOT hardcode passwords in scripts/docs)
+SERVER_SSH_PASS='<your-password>' bash ops/agent.sh deploy nstack-server
+# Or better: use SSH key auth (no password needed)
+bash ops/agent.sh deploy nstack-server
 ```
 
 ## /etc/hosts Setup

@@ -37,9 +37,15 @@ traefik_container_id="$(
   docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/layer1-platform/docker-compose.yml" ps -q traefik 2>/dev/null || true
 )"
 if [[ -n "$traefik_container_id" ]]; then
-  TRAEFIK_EDGE_IP="$(
-    docker inspect -f '{{with index .NetworkSettings.Networks "localagent_edge"}}{{.IPAddress}}{{end}}' "$traefik_container_id" 2>/dev/null || true
-  )"
+  # Try neurostack_edge first (NeuroStack brand), then localagent_edge (legacy)
+  for net in neurostack_edge localagent_edge; do
+    TRAEFIK_EDGE_IP="$(
+      docker inspect -f "{{with index .NetworkSettings.Networks \"${net}\"}}{{.IPAddress}}{{end}}" "$traefik_container_id" 2>/dev/null || true
+    )"
+    if [[ -n "$TRAEFIK_EDGE_IP" ]]; then
+      break
+    fi
+  done
 fi
 if [[ -z "$TRAEFIK_EDGE_IP" ]]; then
   TRAEFIK_EDGE_IP="${TRAEFIK_EDGE_IP:-$(read_env_value TRAEFIK_EDGE_IP || true)}"

@@ -159,8 +159,8 @@ content = f"""http:
   middlewares:
     ns-ratelimit:
       rateLimit:
-        average: 120
-        burst: 60
+        average: 60
+        burst: 120
         period: 1s
     ns-secure-headers:
       headers:
