@@ -155,8 +155,13 @@ ENV_FILE="$NS_ENV_FILE" bash "$DEPLOY_SCRIPTS/bootstrap_extra_ca.sh"
 # Bring up Platform — nstack_stack.sh handles TLS + dynamic.yml rendering
 ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/nstack_stack.sh" platform up -d
 
-ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" platform postgres-primary 180
-ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" platform redis 180
+# Wait for platform services in parallel (saves ~90s vs sequential)
+ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" platform postgres-primary 180 &
+pid_pg=$!
+ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" platform redis 180 &
+pid_redis=$!
+wait $pid_pg || { echo "ERROR: postgres-primary health check failed" >&2; exit 1; }
+wait $pid_redis || { echo "ERROR: redis health check failed" >&2; exit 1; }
 
 # ──────────────────────────────────────────────────────
 # [5] Bootstrap OpenClaw + Apps (Layer 2)
@@ -173,10 +178,14 @@ ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" apps omnirouter
 # Provision API keys + sync OpenWebUI/OpenClaw config
 ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/bootstrap_nstack_app_clients.sh"
 
-# Remaining apps
+# Remaining apps + health checks in parallel
 ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/nstack_stack.sh" apps up -d --no-deps openclaw-cli
-ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" apps open-webui 300
-ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" apps openclaw-gateway 300
+ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" apps open-webui 300 &
+pid_webui=$!
+ENV_FILE="$NS_ENV_FILE" bash "$NS_SCRIPTS/wait_nstack_health.sh" apps openclaw-gateway 300 &
+pid_claw=$!
+wait $pid_webui || { echo "WARN: open-webui health check timed out" >&2; }
+wait $pid_claw || { echo "WARN: openclaw-gateway health check timed out" >&2; }
 
 # Refresh Traefik (pick up port bindings)
 echo "  Refreshing Traefik..."

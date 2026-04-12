@@ -4,11 +4,31 @@ name: neurostack-platform
 # Brand: neurostack (isolated từ localagent brand)
 # Networks: neurostack_platform (internal), neurostack_edge (external via Traefik)
 # Data root: ${NS_DATA_ROOT}
+#
+# Resource profiles (controlled via NS_MEM_PROFILE env):
+#   dev   (M1 Mac 32GB):  generous limits for dev comfort
+#   uat   (Linux 8GB):    tight limits for production-like testing
+# Default: dev. Override: NS_MEM_PROFILE=uat in env file.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+    tag: "neurostack/{{.Name}}"
 
 services:
   postgres-primary:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_PG_MEM_LIMIT:-512M}
+          cpus: '${NS_PG_CPU_LIMIT:-1.0}'
+        reservations:
+          memory: 128M
     environment:
       TZ: ${TZ:-Asia/Ho_Chi_Minh}
       POSTGRES_DB: ${POSTGRES_DB:-neurostack}
@@ -18,11 +38,13 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=256MB
+      - shared_buffers=${NS_PG_SHARED_BUFFERS:-256MB}
       - -c
-      - work_mem=4MB
+      - work_mem=${NS_PG_WORK_MEM:-4MB}
       - -c
-      - effective_cache_size=512MB
+      - effective_cache_size=${NS_PG_EFFECTIVE_CACHE:-512MB}
+      - -c
+      - max_connections=${NS_PG_MAX_CONNECTIONS:-50}
       - -c
       - wal_level=replica
       - -c
@@ -33,6 +55,12 @@ services:
       - checkpoint_completion_target=0.9
       - -c
       - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=${NS_PG_SLOW_QUERY_MS:-1000}
+      - -c
+      - log_statement=none
+      - -c
+      - idle_in_transaction_session_timeout=30000
     volumes:
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/db/primary:/var/lib/postgresql/data
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/logs/postgres:/var/log/postgresql
@@ -52,6 +80,12 @@ services:
   postgres-backup:
     image: prodrigestivill/postgres-backup-local:16
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_PG_BACKUP_MEM_LIMIT:-256M}
+          cpus: '0.5'
     environment:
       TZ: ${TZ:-Asia/Ho_Chi_Minh}
       POSTGRES_HOST: postgres-primary
@@ -74,6 +108,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_REDIS_MEM_LIMIT:-300M}
+          cpus: '0.5'
+        reservations:
+          memory: 64M
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -95,6 +137,14 @@ services:
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_MINIO_MEM_LIMIT:-512M}
+          cpus: '1.0'
+        reservations:
+          memory: 128M
     command: server /data --console-address ":9001"
     environment:
       TZ: ${TZ:-Asia/Ho_Chi_Minh}
@@ -103,6 +153,12 @@ services:
     volumes:
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/minio/data:/data
       - ${NS_DATA_ROOT:-/data/neurostack}/platform/logs/minio:/var/log/minio
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     networks:
       - platform
     labels:
@@ -122,8 +178,10 @@ services:
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     restart: "no"
+    logging: *default-logging
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: /bin/sh
     command:
       - -c
@@ -138,6 +196,14 @@ services:
   traefik:
     image: traefik:v3.1
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${NS_TRAEFIK_MEM_LIMIT:-256M}
+          cpus: '0.5'
+        reservations:
+          memory: 64M
     command:
       - --configFile=/etc/traefik/traefik.yml
     ports:

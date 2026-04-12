@@ -5,13 +5,34 @@ api:
 entryPoints:
   web:
     address: ":80"
+    transport:
+      respondingTimeouts:
+        readTimeout: 300s     # LLM streaming responses can take 5min
+        writeTimeout: 300s
+        idleTimeout: 180s
   websecure:
     address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 300s
+        writeTimeout: 300s
+        idleTimeout: 180s
+
+# Backend connection pool — Traefik default maxIdleConnsPerHost=2 is far
+# too low for LLM API gateways that hold connections during streaming.
+serversTransport:
+  maxIdleConnsPerHost: 200
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 300s    # LLM first token can take minutes
 
 providers:
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true
+  docker:
+    exposedByDefault: false
+    network: neurostack_edge
 
 log:
   level: INFO
@@ -19,6 +40,7 @@ log:
 
 accessLog:
   filePath: /var/log/traefik/access.log
+  bufferingSize: 100   # Buffer 100 lines before flushing → reduces disk I/O
 
 # Optional for public domains:
 # certificatesResolvers:
