@@ -122,6 +122,16 @@ ENV_FILE="$ENV_FILE" bash "$NSTACK_STACK" platform exec -T postgres-primary \
   psql -U "$POSTGRES_USER_VALUE" -d "$POSTGRES_DB_VALUE" -v ON_ERROR_STOP=1 \
   -v openai_url="$OMNIROUTER_NETWORK_BASE_URL" \
   -v openai_key="$OPENWEBUI_APP_KEY" <<'SQL'
+-- OpenWebUI creates this table on first boot, but bootstrap runs before app start.
+-- Ensure table exists so we can seed the config.
+CREATE TABLE IF NOT EXISTS config (
+  id BIGINT PRIMARY KEY,
+  data JSON NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 INSERT INTO config (id, data, version, created_at, updated_at)
 SELECT 1, '{"version":0}'::json, 0, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM config);

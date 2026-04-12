@@ -192,22 +192,23 @@ if (($# == 0)); then
   set -- omniroute open-webui openclaw
 fi
 
-declare -A requested=()
+# Build a space-delimited list of requested services (bash 3.2 compatible — no declare -A)
+_requested=" "
 for service in "$@"; do
-  requested["$(normalize_service_name "$service")"]=1
+  _requested="${_requested}$(normalize_service_name "$service") "
 done
 
-if [[ -n "${requested[omniroute]:-}" ]]; then
+if [[ "$_requested" == *" omniroute "* ]]; then
   echo "Building OmniRoute image from workspace source..."
   build_omniroute
 fi
 
-if [[ -n "${requested[open-webui]:-}" ]]; then
+if [[ "$_requested" == *" open-webui "* ]]; then
   echo "Building OpenWebUI image from workspace source..."
   build_openwebui
 fi
 
-if [[ -n "${requested[openclaw]:-}" ]]; then
+if [[ "$_requested" == *" openclaw "* ]]; then
   echo "Building OpenClaw image from workspace source..."
   build_openclaw
 fi

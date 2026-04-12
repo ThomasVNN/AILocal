@@ -4,6 +4,17 @@ set -euo pipefail
 DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$DEPLOY_DIR/env/stack.env}"
 
+# Auto-detect brand: neurostack (nstack) vs localagent based on ENV_FILE path
+if [[ "$ENV_FILE" == *nstack* ]]; then
+  _BRAND="neurostack"
+  _COMPOSE_FILE="$DEPLOY_DIR/neurostack/layer1-platform/docker-compose.yml"
+  _STACK_CMD="bash $DEPLOY_DIR/neurostack/scripts/nstack_stack.sh"
+else
+  _BRAND="localagent"
+  _COMPOSE_FILE="$DEPLOY_DIR/layer1-platform/docker-compose.yml"
+  _STACK_CMD="bash $DEPLOY_DIR/scripts/stack.sh"
+fi
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing env file: $ENV_FILE" >&2
   echo "Create it first:" >&2
@@ -34,7 +45,7 @@ if [[ -z "$TRAEFIK_HTTPS_PORT" ]]; then
 fi
 TRAEFIK_EDGE_IP=""
 traefik_container_id="$(
-  docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/layer1-platform/docker-compose.yml" ps -q traefik 2>/dev/null || true
+  docker compose --env-file "$ENV_FILE" -f "$_COMPOSE_FILE" ps -q traefik 2>/dev/null || true
 )"
 if [[ -n "$traefik_container_id" ]]; then
   # Try neurostack_edge first (NeuroStack brand), then localagent_edge (legacy)
@@ -87,19 +98,19 @@ echo "Bootstrapping OpenClaw Control UI device auth -> $desired_disable_device_a
 echo "Resolved Traefik edge IP: $TRAEFIK_EDGE_IP"
 echo "Config file: $CONFIG_FILE"
 
-bash "$DEPLOY_DIR/scripts/stack.sh" apps run --rm --no-deps --entrypoint node \
+ENV_FILE="$ENV_FILE" $_STACK_CMD apps run --rm --no-deps --entrypoint node \
   openclaw-gateway dist/index.js config set gateway.controlUi.allowedOrigins \
   "$desired_origins" --strict-json
 
-bash "$DEPLOY_DIR/scripts/stack.sh" apps run --rm --no-deps --entrypoint node \
+ENV_FILE="$ENV_FILE" $_STACK_CMD apps run --rm --no-deps --entrypoint node \
   openclaw-gateway dist/index.js config set gateway.trustedProxies \
   "$desired_trusted_proxies" --strict-json
 
-bash "$DEPLOY_DIR/scripts/stack.sh" apps run --rm --no-deps --entrypoint node \
+ENV_FILE="$ENV_FILE" $_STACK_CMD apps run --rm --no-deps --entrypoint node \
   openclaw-gateway dist/index.js config set gateway.controlUi.dangerouslyDisableDeviceAuth \
   "$desired_disable_device_auth" --strict-json
 
 echo "Done. Restart the gateway to apply:"
-echo "  bash \"$DEPLOY_DIR/scripts/stack.sh\" apps up -d --no-deps openclaw-gateway"
+echo "  ENV_FILE=\"$ENV_FILE\" $_STACK_CMD apps up -d --no-deps openclaw-gateway"
 echo "Control UI helper:"
 echo "  ENV_FILE=\"$ENV_FILE\" bash \"$DEPLOY_DIR/scripts/openclaw_dashboard.sh\""
