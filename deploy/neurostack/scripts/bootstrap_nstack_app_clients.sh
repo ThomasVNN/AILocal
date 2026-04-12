@@ -118,42 +118,42 @@ if [[ "$OPENCLAW_ENV_VALUE" != "$OPENCLAW_APP_KEY" ]]; then
 fi
 
 echo "Syncing OpenWebUI runtime config to PostgreSQL (DB: $POSTGRES_DB_VALUE)..."
+# Best-effort: config table may not exist on first deploy (OpenWebUI creates it).
+# Redis sync below is the primary mechanism; this is a fallback.
 ENV_FILE="$ENV_FILE" bash "$NSTACK_STACK" platform exec -T postgres-primary \
-  psql -U "$POSTGRES_USER_VALUE" -d "$POSTGRES_DB_VALUE" -v ON_ERROR_STOP=1 \
+  psql -U "$POSTGRES_USER_VALUE" -d "$POSTGRES_DB_VALUE" -v ON_ERROR_STOP=0 \
   -v openai_url="$OMNIROUTER_NETWORK_BASE_URL" \
   -v openai_key="$OPENWEBUI_APP_KEY" <<'SQL'
--- OpenWebUI creates this table on first boot, but bootstrap runs before app start.
--- Ensure table exists so we can seed the config.
-CREATE TABLE IF NOT EXISTS config (
-  id BIGINT PRIMARY KEY,
-  data JSON NOT NULL DEFAULT '{}',
-  version INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Skip if config table doesn't exist yet (OpenWebUI migration creates it on first boot)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'config') THEN
+    INSERT INTO config (id, data, version, created_at, updated_at)
+    SELECT 1, '{"version":0}'::json, 0, NOW(), NOW()
+    WHERE NOT EXISTS (SELECT 1 FROM config);
 
-INSERT INTO config (id, data, version, created_at, updated_at)
-SELECT 1, '{"version":0}'::json, 0, NOW(), NOW()
-WHERE NOT EXISTS (SELECT 1 FROM config);
-
-UPDATE config
-SET data = jsonb_set(
-            jsonb_set(
-              jsonb_set(
-                jsonb_set(COALESCE(data, '{}'::json)::jsonb, '{openai,enable}', 'true'::jsonb, true),
-                '{openai,api_base_urls}',
-                to_jsonb(ARRAY[:'openai_url']),
+    UPDATE config
+    SET data = jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    jsonb_set(COALESCE(data, '{}'::json)::jsonb, '{openai,enable}', 'true'::jsonb, true),
+                    '{openai,api_base_urls}',
+                    to_jsonb(ARRAY[current_setting('app.openai_url', true)]),
+                    true
+                  ),
+                  '{openai,api_keys}',
+                  to_jsonb(ARRAY[current_setting('app.openai_key', true)]),
+                  true
+                ),
+                '{openai,api_configs}',
+                '{"0":{"enable":true}}'::jsonb,
                 true
-              ),
-              '{openai,api_keys}',
-              to_jsonb(ARRAY[:'openai_key']),
-              true
-            ),
-            '{openai,api_configs}',
-            '{"0":{"enable":true}}'::jsonb,
-            true
-          )::json,
-    updated_at = NOW();
+              )::json,
+        updated_at = NOW();
+  ELSE
+    RAISE NOTICE 'config table does not exist yet — skipping Postgres sync (Redis sync is primary)';
+  END IF;
+END $$;
 SQL
 
 if [[ -n "$REDIS_PASSWORD_VALUE" ]]; then
