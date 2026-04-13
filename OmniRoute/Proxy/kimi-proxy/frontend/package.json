@@ -1,0 +1,31 @@
+{
+  "name": "llm-api-logs-ui",
+  "private": true,
+  "version": "0.1.5",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@livestore/adapter-web": "^0.3.1",
+    "@livestore/livestore": "^0.3.1",
+    "@livestore/wa-sqlite": "^1.0.5",
+    "@tanstack/react-table": "^8.20.6",
+    "@tanstack/react-virtual": "^3.10.9",
+    "highlight.js": "^11.7.0",
+    "lucide-react": "^0.561.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-json-tree": "^0.20.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.28",
+    "@types/react-dom": "^18.0.11",
+    "@vitejs/plugin-react": "^4.0.0",
+    "typescript": "^5.0.2",
+    "vite": "^4.3.2"
+  }
+}

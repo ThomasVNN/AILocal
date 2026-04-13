@@ -151,6 +151,7 @@ build_openwebui() {
     "$platform" \
     "$ROOT_DIR/open-webui/Dockerfile" \
     "$ROOT_DIR/open-webui" \
+    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OPENWEBUI_BUILD_NODE_OPTIONS '--max-old-space-size=8192')" \
     --build-arg USE_OLLAMA="$(resolve_value OPENWEBUI_BUILD_USE_OLLAMA 'false')" \
     --build-arg USE_SLIM="$(resolve_value OPENWEBUI_BUILD_USE_SLIM 'true')" \
     --build-arg USE_PERMISSION_HARDENING="$(resolve_value OPENWEBUI_BUILD_USE_PERMISSION_HARDENING 'false')" \
@@ -192,22 +193,29 @@ if (($# == 0)); then
   set -- omniroute open-webui openclaw
 fi
 
-declare -A requested=()
+req_omniroute=0
+req_openwebui=0
+req_openclaw=0
 for service in "$@"; do
-  requested["$(normalize_service_name "$service")"]=1
+  normalized="$(normalize_service_name "$service")"
+  case "$normalized" in
+    omniroute) req_omniroute=1 ;;
+    open-webui) req_openwebui=1 ;;
+    openclaw) req_openclaw=1 ;;
+  esac
 done
 
-if [[ -n "${requested[omniroute]:-}" ]]; then
+if [[ "$req_omniroute" == "1" ]]; then
   echo "Building OmniRoute image from workspace source..."
   build_omniroute
 fi
 
-if [[ -n "${requested[open-webui]:-}" ]]; then
+if [[ "$req_openwebui" == "1" ]]; then
   echo "Building OpenWebUI image from workspace source..."
   build_openwebui
 fi
 
-if [[ -n "${requested[openclaw]:-}" ]]; then
+if [[ "$req_openclaw" == "1" ]]; then
   echo "Building OpenClaw image from workspace source..."
   build_openclaw
 fi

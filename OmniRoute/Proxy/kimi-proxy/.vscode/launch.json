@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Docker",
+      "type": "bun",
+      "request": "attach",
+      "url": "ws://0.0.0.0:9229/debug",
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app"
+    },
+    {
+      "name": "Launch Dev (tsx)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "openOnSessionStart",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true
+    }
+  ]
+}
