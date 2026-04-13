@@ -10,7 +10,7 @@
 - `ops/`: entrypoint triển khai local/server.
 - `docs/`: tài liệu vận hành.
 - `.localagent-data/`: runtime data root hiện đang được container local mount.
-- `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/`: source active.
+- `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/`: source active, được track trực tiếp bởi root repo `AILocal`.
 - `OmniRoute-merge/`: merge sandbox/experimental clone, hiện không thuộc deploy path.
 - `legacy/unified-stack/`: legacy one-layer stack gồm compose/config/state/script cũ.
 - `legacy/quarantine/`: dữ liệu thô không nên nằm ở root active.
@@ -35,7 +35,7 @@
 
 ## Risk Guardrails
 - Không di chuyển `deploy/`, `ops/`, `docs/`, `.localagent-data/` vì đây là contract của stack đang chạy.
-- Không chạm vào source file bên trong `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/`.
+- Không biến `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/` trở lại thành nested repo/submodule nếu mục tiêu vẫn là root repo track full source.
 - Không di chuyển `OmniRoute-merge/` vì repo này đang có local modification; chỉ dọn generated output.
 - Legacy data không bị xóa mù quáng; chỉ cô lập sang `legacy/` hoặc `artifacts/`.
 - Runtime đang chạy được xác nhận mount từ `.localagent-data/`, không mount các thư mục root legacy vừa được dời đi.

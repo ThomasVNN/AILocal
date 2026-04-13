@@ -21,7 +21,7 @@ Tài liệu chi tiết:
 ## Workspace layout
 - `deploy/`, `ops/`, `docs/`: điểm vào vận hành thật của stack 2-layer hiện tại.
 - `.localagent-data/`: runtime data root đang được container mount khi chạy local.
-- `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/`: source/workspace đang active.
+- `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/`: source/workspace đang active và được track trực tiếp trong repo `AILocal`.
 - `legacy/unified-stack/`: compose/config/state/script của stack cũ, được cô lập để không lẫn với deploy chuẩn.
 - `legacy/quarantine/`: dữ liệu thô/sensitive capture không thuộc runtime hiện tại.
 - `artifacts/`: image tar, backup, snapshot để tham chiếu hoặc restore thủ công.
@@ -36,6 +36,7 @@ bash ops/audit_workspace.sh
 Nguyên tắc an toàn:
 - `ops/agent.sh`, `deploy/scripts/*`, `deploy/layer*` chỉ được phép phụ thuộc vào stack 2-layer hiện tại.
 - Không xóa trực tiếp `legacy/` hoặc `artifacts/` nếu chưa xác nhận không còn nhu cầu restore/forensics.
+- Không tái tạo nested git repo trong `OmniRoute/`, `openclaw/`, `open-webui/`, `claude-code/` nếu mục tiêu vẫn là monorepo `AILocal` track full source.
 - Nếu cần dọn tiếp, ưu tiên xóa generated output trong repo con trước khi đụng vào source hoặc runtime data.
 
 ## Domain conventions

@@ -4,13 +4,6 @@
 .DS_Store
 *.srl
 
-# Workspace source repos (kept as separate git repos, not tracked here)
-OmniRoute/
-openclaw/
-open-webui/
-claude-code/
-OmniRoute-merge/
-
 # Brand secrets (gitignored, generated per machine)
 deploy/env/nstack.local.env
 deploy/env/nstack.server.env

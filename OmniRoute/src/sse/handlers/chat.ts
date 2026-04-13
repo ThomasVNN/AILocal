@@ -1,0 +1,958 @@
+import { randomUUID } from "crypto";
+import {
+  getProviderCredentials,
+  markAccountUnavailable,
+  clearAccountError,
+  extractApiKey,
+  isValidApiKey,
+} from "../services/auth";
+import { getModelInfo, getComboForModel } from "../services/model";
+import { parseModel } from "@omniroute/open-sse/services/model.ts";
+import {
+  detectFormatFromEndpoint,
+  getTargetFormat,
+} from "@omniroute/open-sse/services/provider.ts";
+import { handleChatCore } from "@omniroute/open-sse/handlers/chatCore.ts";
+import { errorResponse, unavailableResponse } from "@omniroute/open-sse/utils/error.ts";
+import { handleComboChat } from "@omniroute/open-sse/services/combo.ts";
+import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
+import {
+  getModelTargetFormat,
+  PROVIDER_ID_TO_ALIAS,
+} from "@omniroute/open-sse/config/providerModels.ts";
+import {
+  runWithProxyContext,
+  runWithTlsTracking,
+  isTlsFingerprintActive,
+} from "@omniroute/open-sse/utils/proxyFetch.ts";
+import * as log from "../utils/logger";
+import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh";
+import { getSettings, getCombos } from "@/lib/localDb";
+import { resolveProxyForConnection } from "@/lib/localDb";
+import { logProxyEvent } from "../../lib/proxyLogger";
+import { logTranslationEvent } from "../../lib/translatorEvents";
+import { sanitizeRequest } from "../../shared/utils/inputSanitizer";
+
+// Pipeline integration — wired modules
+import { getCircuitBreaker, CircuitBreakerOpenError } from "../../shared/utils/circuitBreaker";
+import {
+  isModelAvailable,
+  setModelUnavailable,
+  clearModelUnavailability,
+} from "../../domain/modelAvailability";
+import { markAccountExhaustedFrom429 } from "../../domain/quotaCache";
+import { RequestTelemetry, recordTelemetry } from "../../shared/utils/requestTelemetry";
+import { generateRequestId } from "../../shared/utils/requestId";
+import { logAuditEvent } from "../../lib/compliance/index";
+import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
+import { cloneLogPayload } from "@/lib/logPayloads";
+import { sanitizePrivacyPayload } from "@/lib/privacy/runtime";
+import { resolvePrivacySourceApp, restorePrivacyJsonResponse } from "@/lib/privacy/http";
+import {
+  applyTaskAwareRouting,
+  getTaskRoutingConfig,
+} from "@omniroute/open-sse/services/taskAwareRouter.ts";
+import {
+  generateSessionId as generateStableSessionId,
+  touchSession,
+  extractExternalSessionId,
+  checkSessionLimit,
+  registerKeySession,
+  isSessionRegisteredForKey,
+} from "@omniroute/open-sse/services/sessionManager.ts";
+import {
+  isFallbackDecision,
+  shouldUseFallback,
+} from "@omniroute/open-sse/services/emergencyFallback.ts";
+
+/**
+ * Handle chat completion request
+ * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
+ * Format detection and translation handled by translator
+ */
+export async function handleChat(
+  request: any,
+  clientRawRequest: any = null,
+  preParsedBody: any = null
+) {
+  // Pipeline: Start request telemetry
+  const reqId = generateRequestId();
+  const telemetry = new RequestTelemetry(reqId);
+
+  let body = preParsedBody;
+  telemetry.startPhase("parse");
+  if (!body) {
+    try {
+      body = await request.json();
+    } catch {
+      telemetry.endPhase();
+      log.warn("CHAT", "Invalid JSON body");
+      return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
+    }
+  }
+  telemetry.endPhase();
+
+  // FASE-01: Input sanitization — prompt injection detection & PII redaction
+  telemetry.startPhase("validate");
+  const sanitizeResult = sanitizeRequest(body, log as any);
+  if (sanitizeResult.blocked) {
+    log.warn("SANITIZER", "Request blocked due to prompt injection", {
+      detections: sanitizeResult.detections,
+    });
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Request rejected: suspicious content detected");
+  }
+  if (sanitizeResult.modified && sanitizeResult.sanitizedBody) {
+    body = sanitizeResult.sanitizedBody;
+  }
+  telemetry.endPhase();
+
+  // T01 — Accept header negotiation
+  // If client asks for text/event-stream via the Accept header AND the JSON body
+  // does not explicitly set stream=false, treat it as stream=true.
+  // This ensures compatibility with curl/httpx and similar non-OpenAI clients.
+  //
+  // FIX #302: OpenAI Python SDK sends Accept: application/json, text/event-stream
+  // in every request — even when called with stream=False. We must NOT override
+  // an explicit stream=false body field, as that silently breaks tool_calls and
+  // structured completions for SDK users who rely on non-streaming mode.
+  const acceptHeader = request.headers.get("accept") || "";
+  if (acceptHeader.includes("text/event-stream") && body.stream === undefined) {
+    body = { ...body, stream: true };
+    log.debug(
+      "STREAM",
+      "Accept: text/event-stream header → overriding stream=true (body had no stream field)"
+    );
+  }
+
+  // Log request endpoint and model
+  const url = new URL(request.url);
+  const modelStr = body.model;
+
+  // Count messages (support both messages[] and input[] formats)
+  const msgCount = body.messages?.length || body.input?.length || 0;
+  const toolCount = body.tools?.length || 0;
+  const effort = body.reasoning_effort || body.reasoning?.effort || null;
+  log.request(
+    "POST",
+    `${url.pathname} | ${modelStr} | ${msgCount} msgs${toolCount ? ` | ${toolCount} tools` : ""}${effort ? ` | effort=${effort}` : ""}`
+  );
+
+  // Log API key (masked)
+  const authHeader = request.headers.get("Authorization");
+  const apiKey = extractApiKey(request);
+  if (authHeader && apiKey) {
+    log.debug("AUTH", `API Key: ${log.maskKey(apiKey)}`);
+  } else {
+    log.debug("AUTH", "No API key provided (local mode)");
+  }
+
+  // Optional strict API key mode for /v1 endpoints (require key on every request).
+  const isComboLiveTest = request.headers?.get?.("x-internal-test") === "combo-health-check";
+  if (process.env.REQUIRE_API_KEY === "true" && !isComboLiveTest) {
+    if (!apiKey) {
+      log.warn("AUTH", "Missing API key while REQUIRE_API_KEY=true");
+      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
+    }
+    const valid = await isValidApiKey(apiKey);
+    if (!valid) {
+      log.warn("AUTH", "Invalid API key while REQUIRE_API_KEY=true");
+      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+    }
+  } else if (apiKey && !isComboLiveTest) {
+    // Client sent a Bearer key — it must exist in DB (otherwise reject to avoid "key ignored" confusion).
+    const valid = await isValidApiKey(apiKey);
+    if (!valid) {
+      log.warn("AUTH", "API key not found or invalid (must be created in API Manager)");
+      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+    }
+  }
+
+  if (!modelStr) {
+    log.warn("CHAT", "Missing model");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
+  }
+
+  // T04: client-provided external session header has priority over generated fingerprint.
+  const externalSessionId = extractExternalSessionId(request.headers);
+  const sessionId = externalSessionId || generateStableSessionId(body);
+  if (sessionId) {
+    touchSession(sessionId);
+  }
+
+  // Pipeline: API key policy enforcement (model restrictions + budget limits)
+  telemetry.startPhase("policy");
+  const policy = await enforceApiKeyPolicy(request, modelStr);
+  if (policy.rejection) {
+    log.warn(
+      "POLICY",
+      `API key policy rejected: ${modelStr} (key=${policy.apiKeyInfo?.id || "unknown"})`
+    );
+    return policy.rejection;
+  }
+  const apiKeyInfo = policy.apiKeyInfo;
+  telemetry.endPhase();
+
+  // T08: per-key active session limit (0 = unlimited).
+  if (apiKeyInfo?.id && sessionId) {
+    const maxSessions =
+      typeof apiKeyInfo.maxSessions === "number" && apiKeyInfo.maxSessions > 0
+        ? apiKeyInfo.maxSessions
+        : 0;
+
+    if (maxSessions > 0 && !isSessionRegisteredForKey(apiKeyInfo.id, sessionId)) {
+      const sessionViolation = checkSessionLimit(apiKeyInfo.id, maxSessions);
+      if (sessionViolation) {
+        return withSessionHeader(
+          errorResponse(HTTP_STATUS.RATE_LIMITED, sessionViolation.message),
+          sessionId
+        );
+      }
+      registerKeySession(apiKeyInfo.id, sessionId);
+    }
+  }
+
+  const sourceApp = resolvePrivacySourceApp(request, apiKeyInfo);
+  telemetry.startPhase("privacy");
+  const privacyResult = await sanitizePrivacyPayload({
+    requestId: reqId,
+    payload: body,
+    sourceApp,
+    stream: body.stream === true,
+    apiKeyId: apiKeyInfo?.id || null,
+    endpointType: "chat.completions",
+  });
+  telemetry.endPhase();
+
+  if (privacyResult.decision === "blocked") {
+    log.warn("PRIVACY", privacyResult.blockResponse?.message || "Blocked by privacy policy");
+    return errorResponse(
+      HTTP_STATUS.BAD_REQUEST,
+      privacyResult.blockResponse?.message || "Request blocked by privacy policy"
+    );
+  }
+
+  body = privacyResult.sanitizedPayload;
+
+  // Build clientRawRequest for logging (if not provided)
+  if (!clientRawRequest) {
+    clientRawRequest = buildClientRawRequest(request, body);
+  }
+
+  // T05 — Task-Aware Smart Routing
+  // Detect the semantic task type and optionally route to the optimal model
+  let resolvedModelStr = modelStr;
+  let taskRouteInfo: { taskType: string; wasRouted: boolean } | null = null;
+  if (getTaskRoutingConfig().enabled) {
+    telemetry.startPhase("task-route");
+    const tr = applyTaskAwareRouting(modelStr, body);
+    if (tr.wasRouted) {
+      resolvedModelStr = tr.model;
+      body = { ...body, model: tr.model };
+      log.info(
+        "T05",
+        `Task-Aware: detected="${tr.taskType}" → model override: ${modelStr} → ${tr.model}`
+      );
+    } else if (tr.taskType !== "chat") {
+      log.debug("T05", `Task-Aware: detected="${tr.taskType}" (no override configured)`);
+    }
+    taskRouteInfo = { taskType: tr.taskType, wasRouted: tr.wasRouted };
+    telemetry.endPhase();
+  }
+
+  // Check if model is a combo (has multiple models with fallback)
+  telemetry.startPhase("resolve");
+  const combo = await getComboForModel(resolvedModelStr);
+  if (combo) {
+    log.info(
+      "CHAT",
+      `Combo "${modelStr}" [${combo.strategy || "priority"}] with ${combo.models.length} models`
+    );
+
+    // Pre-check function used by combo routing. For explicit combo live tests,
+    // avoid pre-skipping so each model gets a real execution attempt.
+    const checkModelAvailable = async (modelString: string) => {
+      if (isComboLiveTest) return true;
+
+      // Use getModelInfo to properly resolve custom prefixes
+      const modelInfo = await getModelInfo(modelString);
+      const provider = modelInfo.provider;
+      if (!provider) return true; // can't determine provider, let it try
+
+      // Check domain-level availability (cooldown)
+      if (!isModelAvailable(provider, modelInfo.model || modelString)) {
+        log.debug("AVAILABILITY", `${provider}/${modelInfo.model} in cooldown, skipping`);
+        return false;
+      }
+
+      const creds = await getProviderCredentials(
+        provider,
+        null,
+        apiKeyInfo?.allowedConnections ?? null,
+        modelInfo.model || modelString
+      );
+      if (!creds || creds.allRateLimited) return false;
+      return true;
+    };
+
+    // Fetch settings and all combos for config cascade and nested resolution
+    const [settings, allCombos] = await Promise.all([
+      getSettings().catch(() => ({})),
+      getCombos().catch(() => []),
+    ]);
+    telemetry.endPhase();
+
+    const response = await (handleComboChat as any)({
+      body,
+      combo,
+      handleSingleModel: (b: any, m: string) =>
+        handleSingleModelChat(
+          b,
+          m,
+          clientRawRequest,
+          request,
+          combo.name,
+          apiKeyInfo,
+          telemetry,
+          {
+            sessionId,
+            forceLiveComboTest: isComboLiveTest,
+          },
+          combo.strategy,
+          true
+        ),
+      isModelAvailable: checkModelAvailable,
+      log,
+      settings,
+      allCombos,
+    });
+
+    // ── Global Fallback Provider (#689) ────────────────────────────────────
+    // If combo exhausted all models, try the global fallback before giving up.
+    if (
+      !response.ok &&
+      [502, 503].includes(response.status) &&
+      typeof (settings as any)?.globalFallbackModel === "string" &&
+      (settings as any).globalFallbackModel.trim()
+    ) {
+      const fallbackModel = (settings as any).globalFallbackModel.trim();
+      log.info(
+        "GLOBAL_FALLBACK",
+        `Combo "${combo.name}" exhausted — attempting global fallback: ${fallbackModel}`
+      );
+      try {
+        const fallbackResponse = await handleSingleModelChat(
+          body,
+          fallbackModel,
+          clientRawRequest,
+          request,
+          combo.name,
+          apiKeyInfo,
+          telemetry,
+          { sessionId, emergencyFallbackTried: true, forceLiveComboTest: isComboLiveTest },
+          combo.strategy,
+          true
+        );
+        if (fallbackResponse.ok) {
+          log.info("GLOBAL_FALLBACK", `Global fallback ${fallbackModel} succeeded`);
+          recordTelemetry(telemetry);
+          const restoredFallbackResponse =
+            body.stream === true
+              ? fallbackResponse
+              : await restorePrivacyJsonResponse(fallbackResponse, {
+                  requestId: reqId,
+                  restoreSessionId: privacyResult.restoreSessionId,
+                  sourceApp,
+                  endpointType: "chat.completions",
+                });
+          return withSessionHeader(restoredFallbackResponse, sessionId);
+        }
+        log.warn(
+          "GLOBAL_FALLBACK",
+          `Global fallback ${fallbackModel} also failed (${fallbackResponse.status})`
+        );
+      } catch (err: any) {
+        log.warn("GLOBAL_FALLBACK", `Global fallback error: ${err?.message || "unknown"}`);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Record telemetry
+    recordTelemetry(telemetry);
+    const restoredComboResponse =
+      body.stream === true
+        ? response
+        : await restorePrivacyJsonResponse(response, {
+            requestId: reqId,
+            restoreSessionId: privacyResult.restoreSessionId,
+            sourceApp,
+            endpointType: "chat.completions",
+          });
+    return withSessionHeader(restoredComboResponse, sessionId);
+  }
+  telemetry.endPhase();
+
+  // Single model request
+  const response = await handleSingleModelChat(
+    body,
+    modelStr,
+    clientRawRequest,
+    request,
+    null,
+    apiKeyInfo,
+    telemetry,
+    { sessionId, forceLiveComboTest: isComboLiveTest },
+    null,
+    false
+  );
+  recordTelemetry(telemetry);
+  const restoredSingleResponse =
+    body.stream === true
+      ? response
+      : await restorePrivacyJsonResponse(response, {
+          requestId: reqId,
+          restoreSessionId: privacyResult.restoreSessionId,
+          sourceApp,
+          endpointType: "chat.completions",
+        });
+  return withSessionHeader(restoredSingleResponse, sessionId);
+}
+
+export function buildClientRawRequest(request: Request, body: unknown) {
+  const url = new URL(request.url);
+  return {
+    endpoint: url.pathname,
+    body: cloneLogPayload(body),
+    headers: Object.fromEntries(request.headers.entries()),
+  };
+}
+
+/**
+ * Handle single model chat request
+ *
+ * Refactored: model resolution, logging, pipeline gates, and chat execution
+ * extracted to focused helpers. This function orchestrates the credential
+ * retry loop.
+ */
+async function handleSingleModelChat(
+  body: any,
+  modelStr: string,
+  clientRawRequest: any = null,
+  request: any = null,
+  comboName: string | null = null,
+  apiKeyInfo: any = null,
+  telemetry: any = null,
+  runtimeOptions: {
+    emergencyFallbackTried?: boolean;
+    forceLiveComboTest?: boolean;
+    sessionId?: string | null;
+  } = {},
+  comboStrategy: string | null = null,
+  isCombo: boolean = false
+) {
+  // 1. Resolve model → provider/model
+  const resolved = await resolveModelOrError(modelStr, body, clientRawRequest?.endpoint);
+  if (resolved.error) return resolved.error;
+
+  const { provider, model, sourceFormat, targetFormat, extendedContext } = resolved;
+  const forceLiveComboTest = runtimeOptions.forceLiveComboTest === true;
+
+  // 2. Pipeline gates (availability + circuit breaker)
+  const gate = checkPipelineGates(provider, model, {
+    ignoreCircuitBreaker: forceLiveComboTest,
+    ignoreModelCooldown: forceLiveComboTest,
+  });
+  if (gate) return gate;
+
+  const breaker = getCircuitBreaker(provider, {
+    failureThreshold: 5,
+    resetTimeout: 30000,
+    onStateChange: (name: string, from: string, to: string) =>
+      log.info("CIRCUIT", `${name}: ${from} → ${to}`),
+  });
+
+  const userAgent = request?.headers?.get("user-agent") || "";
+
+  // 3. Credential retry loop
+  let excludeConnectionId = null;
+  let lastError = null;
+  let lastStatus = null;
+
+  while (true) {
+    const credentials = await getProviderCredentials(
+      provider,
+      excludeConnectionId,
+      apiKeyInfo?.allowedConnections ?? null,
+      model,
+      forceLiveComboTest
+        ? {
+            allowSuppressedConnections: true,
+            bypassQuotaPolicy: true,
+          }
+        : undefined
+    );
+
+    if (!credentials || credentials.allRateLimited) {
+      if (lastStatus === 429 || lastStatus === 503) {
+        setModelUnavailable(provider, model, 60000, `HTTP ${lastStatus}`);
+        log.info(
+          "AVAILABILITY",
+          `${provider}/${model} marked unavailable — all accounts exhausted (HTTP ${lastStatus})`
+        );
+      }
+      return handleNoCredentials(
+        credentials,
+        excludeConnectionId,
+        provider,
+        model,
+        lastError,
+        lastStatus
+      );
+    }
+
+    const accountId = credentials.connectionId.slice(0, 8);
+    log.info("AUTH", `Using ${provider} account: ${accountId}...`);
+    if (runtimeOptions.sessionId) {
+      touchSession(runtimeOptions.sessionId, credentials.connectionId);
+    }
+
+    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const proxyInfo = await safeResolveProxy(credentials.connectionId);
+    const proxyStartTime = Date.now();
+
+    // 4. Execute chat via core (with circuit breaker + optional TLS)
+    if (telemetry) telemetry.startPhase("connect");
+    const { result, tlsFingerprintUsed } = await executeChatWithBreaker({
+      bypassCircuitBreaker: forceLiveComboTest,
+      breaker,
+      body,
+      provider,
+      model,
+      refreshedCredentials,
+      proxyInfo,
+      log,
+      clientRawRequest,
+      credentials,
+      apiKeyInfo,
+      userAgent,
+      comboName,
+      comboStrategy,
+      isCombo,
+      extendedContext,
+    });
+    if (telemetry) telemetry.endPhase();
+
+    const proxyLatency = Date.now() - proxyStartTime;
+
+    // 5. Log proxy + translation events
+    safeLogEvents({
+      result,
+      proxyInfo,
+      proxyLatency,
+      provider,
+      model,
+      sourceFormat,
+      targetFormat,
+      credentials,
+      comboName,
+      clientRawRequest,
+      tlsFingerprintUsed,
+    });
+
+    if (result.success) {
+      clearModelUnavailability(provider, model);
+      if (telemetry) telemetry.startPhase("finalize");
+      if (telemetry) telemetry.endPhase();
+      return result.response;
+    }
+
+    // Emergency fallback for budget exhaustion (402 / billing / quota keywords):
+    // reroute to a free model (default provider/model: nvidia + openai/gpt-oss-120b) exactly once.
+    if (!runtimeOptions.emergencyFallbackTried) {
+      const fallbackDecision = shouldUseFallback(
+        Number(result.status || 0),
+        String(result.error || ""),
+        Array.isArray(body?.tools) && body.tools.length > 0
+      );
+
+      if (isFallbackDecision(fallbackDecision)) {
+        const fallbackModelStr = `${fallbackDecision.provider}/${fallbackDecision.model}`;
+        const currentModelStr = `${provider}/${model}`;
+
+        if (fallbackModelStr !== currentModelStr) {
+          const fallbackBody = { ...body, model: fallbackModelStr };
+
+          // Cap output on emergency fallback to avoid unexpected long responses.
+          const maxTokens = Math.min(
+            Number(
+              fallbackBody.max_tokens ??
+                fallbackBody.max_completion_tokens ??
+                fallbackDecision.maxOutputTokens
+            ) || fallbackDecision.maxOutputTokens,
+            fallbackDecision.maxOutputTokens
+          );
+          fallbackBody.max_tokens = maxTokens;
+          fallbackBody.max_completion_tokens = maxTokens;
+
+          log.warn(
+            "EMERGENCY_FALLBACK",
+            `${currentModelStr} -> ${fallbackModelStr} | reason=${fallbackDecision.reason}`
+          );
+
+          const fallbackResponse = await handleSingleModelChat(
+            fallbackBody,
+            fallbackModelStr,
+            clientRawRequest,
+            request,
+            comboName,
+            apiKeyInfo,
+            telemetry,
+            { ...runtimeOptions, emergencyFallbackTried: true },
+            null, // no strategy for emergency fallback
+            Boolean(comboName) // isCombo if comboName exists
+          );
+
+          if (fallbackResponse.ok) {
+            return fallbackResponse;
+          }
+
+          log.warn(
+            "EMERGENCY_FALLBACK",
+            `Emergency fallback to ${fallbackModelStr} failed with status ${fallbackResponse.status}. Resuming original provider account fallback.`
+          );
+        }
+      }
+    }
+
+    // 6. Mark account as quota-exhausted on 429 response
+    // Web-session providers have resettable short-window quotas; caching them
+    // as "exhausted" for 5 minutes can outlive the actual reset window.
+    const hasResettableWebQuota =
+      provider === "chatgpt-web2api" ||
+      provider === "perplexity-web2api" ||
+      provider === "gemini-web2api";
+    if (result.status === 429 && provider !== "gemini" && !hasResettableWebQuota) {
+      markAccountExhaustedFrom429(credentials.connectionId, provider);
+    }
+
+    // 7. Fallback to next account
+    const { shouldFallback } = await markAccountUnavailable(
+      credentials.connectionId,
+      result.status,
+      result.error,
+      provider,
+      model
+    );
+
+    if (shouldFallback) {
+      log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
+      excludeConnectionId = credentials.connectionId;
+      lastError = result.error;
+      lastStatus = result.status;
+      continue;
+    }
+
+    return result.response;
+  }
+}
+
+// ──── Pipeline gate checks ────
+
+/**
+ * Resolve model string to provider/model info, or return an error response.
+ */
+async function resolveModelOrError(modelStr: string, body: any, endpointPath: string = "") {
+  const modelInfo = await getModelInfo(modelStr);
+  if (!modelInfo.provider) {
+    if ((modelInfo as any).errorType === "ambiguous_model") {
+      const message =
+        (modelInfo as any).errorMessage ||
+        `Ambiguous model '${modelStr}'. Use provider/model prefix (ex: gh/${modelStr} or cc/${modelStr}).`;
+      log.warn("CHAT", message, {
+        model: modelStr,
+        candidates:
+          (modelInfo as any).candidateAliases || (modelInfo as any).candidateProviders || [],
+      });
+      return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, message) };
+    }
+    log.warn("CHAT", "Invalid model format", { model: modelStr });
+    return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format") };
+  }
+
+  const { provider, model, extendedContext } = modelInfo;
+  const sourceFormat = detectFormatFromEndpoint(body, endpointPath);
+  const providerAlias = PROVIDER_ID_TO_ALIAS[provider] || provider;
+
+  // If the custom model specifies apiFormat="responses", override targetFormat
+  // to route through the Responses API translator instead of Chat Completions
+  let targetFormat = getModelTargetFormat(providerAlias, model) || getTargetFormat(provider);
+  if ((modelInfo as any).apiFormat === "responses") {
+    targetFormat = "openai-responses";
+    log.info("ROUTING", `Custom model apiFormat=responses → targetFormat=openai-responses`);
+  }
+
+  const ctxTag = extendedContext && providerAlias === "claude" ? " [1m]" : "";
+  if (modelStr !== `${provider}/${model}`) {
+    log.info("ROUTING", `${modelStr} → ${provider}/${model}${ctxTag}`);
+  } else {
+    log.info("ROUTING", `Provider: ${provider}, Model: ${model}${ctxTag}`);
+  }
+
+  return { provider, model, sourceFormat, targetFormat, extendedContext };
+}
+
+/**
+ * Check pipeline gates: model availability + circuit breaker state.
+ * Returns an error Response if blocked, or null if OK to proceed.
+ */
+function checkPipelineGates(
+  provider: string,
+  model: string,
+  options: { ignoreCircuitBreaker?: boolean; ignoreModelCooldown?: boolean } = {}
+) {
+  const modelAvailable = isModelAvailable(provider, model);
+  if (!modelAvailable && options.ignoreModelCooldown) {
+    log.info("AVAILABILITY", `${provider}/${model} cooldown bypassed for combo live test`);
+  } else if (!modelAvailable) {
+    log.warn("AVAILABILITY", `${provider}/${model} is in cooldown, rejecting request`);
+    return (unavailableResponse as any)(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      `Model ${provider}/${model} is temporarily unavailable (cooldown)`,
+      30
+    );
+  }
+
+  const breaker = getCircuitBreaker(provider, {
+    failureThreshold: 5,
+    resetTimeout: 30000,
+    onStateChange: (name: string, from: string, to: string) =>
+      log.info("CIRCUIT", `${name}: ${from} → ${to}`),
+  });
+  if (options.ignoreCircuitBreaker && !breaker.canExecute()) {
+    log.info("CIRCUIT", `Bypassing OPEN circuit breaker for combo live test: ${provider}`);
+  } else if (!breaker.canExecute()) {
+    log.warn("CIRCUIT", `Circuit breaker OPEN for ${provider}, rejecting request`);
+    return (unavailableResponse as any)(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      `Provider ${provider} circuit breaker is open`,
+      30
+    );
+  }
+
+  return null;
+}
+
+// ──── Chat execution with circuit breaker ────
+
+/**
+ * Execute chat core wrapped in circuit breaker + optional TLS tracking.
+ */
+async function executeChatWithBreaker({
+  bypassCircuitBreaker,
+  breaker,
+  body,
+  provider,
+  model,
+  refreshedCredentials,
+  proxyInfo,
+  log: logger,
+  clientRawRequest,
+  credentials,
+  apiKeyInfo,
+  userAgent,
+  comboName,
+  comboStrategy,
+  isCombo,
+  extendedContext,
+}: any): Promise<{ result: any; tlsFingerprintUsed: boolean }> {
+  let tlsFingerprintUsed = false;
+
+  try {
+    const chatFn = () =>
+      runWithProxyContext(proxyInfo?.proxy || null, () =>
+        (handleChatCore as any)({
+          body: { ...body, model: `${provider}/${model}` },
+          modelInfo: { provider, model, extendedContext },
+          credentials: refreshedCredentials,
+          log: logger,
+          clientRawRequest,
+          connectionId: credentials.connectionId,
+          apiKeyInfo,
+          userAgent,
+          comboName,
+          comboStrategy,
+          isCombo,
+          onCredentialsRefreshed: async (newCreds: any) => {
+            await updateProviderCredentials(credentials.connectionId, {
+              accessToken: newCreds.accessToken,
+              refreshToken: newCreds.refreshToken,
+              providerSpecificData: newCreds.providerSpecificData,
+              testStatus: "active",
+            });
+          },
+          onRequestSuccess: async () => {
+            await clearAccountError(credentials.connectionId, credentials);
+          },
+        })
+      );
+
+    if (bypassCircuitBreaker) {
+      if (!proxyInfo?.proxy && isTlsFingerprintActive()) {
+        const tracked = await runWithTlsTracking(chatFn);
+        return { result: tracked.result, tlsFingerprintUsed: tracked.tlsFingerprintUsed };
+      }
+
+      const result = await chatFn();
+      return { result, tlsFingerprintUsed: false };
+    }
+
+    if (!proxyInfo?.proxy && isTlsFingerprintActive()) {
+      const tracked = await breaker.execute(async () => runWithTlsTracking(chatFn));
+      return { result: tracked.result, tlsFingerprintUsed: tracked.tlsFingerprintUsed };
+    }
+
+    const result = await breaker.execute(chatFn);
+    return { result, tlsFingerprintUsed: false };
+  } catch (cbErr) {
+    if (cbErr instanceof CircuitBreakerOpenError) {
+      log.warn("CIRCUIT", `${provider} circuit open during retry: ${cbErr.message}`);
+      return {
+        result: {
+          success: false,
+          response: (unavailableResponse as any)(
+            HTTP_STATUS.SERVICE_UNAVAILABLE,
+            `Provider ${provider} circuit breaker is open`,
+            Math.ceil(cbErr.retryAfterMs / 1000)
+          ),
+          status: HTTP_STATUS.SERVICE_UNAVAILABLE,
+        },
+        tlsFingerprintUsed: false,
+      };
+    }
+
+    // T14: Proxy Fast-Fail should be converted into an upstream-unavailable result
+    // so account fallback logic can continue with another connection.
+    if (cbErr?.code === "PROXY_UNREACHABLE" || /proxy unreachable/i.test(cbErr?.message || "")) {
+      const detail = cbErr?.message || "Proxy unreachable";
+      log.warn("PROXY", detail);
+      return {
+        result: {
+          success: false,
+          response: (unavailableResponse as any)(HTTP_STATUS.SERVICE_UNAVAILABLE, detail, 2),
+          status: HTTP_STATUS.SERVICE_UNAVAILABLE,
+          error: detail,
+        },
+        tlsFingerprintUsed: false,
+      };
+    }
+
+    throw cbErr;
+  }
+}
+
+// ──── Extracted helpers (T-28) ────
+
+function handleNoCredentials(
+  credentials: any,
+  excludeConnectionId: string | null,
+  provider: string,
+  model: string,
+  lastError: string | null,
+  lastStatus: number | null
+) {
+  if (credentials?.allRateLimited) {
+    const errorMsg = lastError || credentials.lastError || "Unavailable";
+    const status =
+      lastStatus || Number(credentials.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE;
+    log.warn("CHAT", `[${provider}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`);
+    return unavailableResponse(
+      status,
+      `[${provider}/${model}] ${errorMsg}`,
+      credentials.retryAfter,
+      credentials.retryAfterHuman
+    );
+  }
+  if (!excludeConnectionId) {
+    log.error("AUTH", `No credentials for provider: ${provider}`);
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
+  }
+  log.warn("CHAT", "No more accounts available", { provider });
+  return errorResponse(
+    lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE,
+    lastError || "All accounts unavailable"
+  );
+}
+
+async function safeResolveProxy(connectionId: string) {
+  try {
+    return await resolveProxyForConnection(connectionId);
+  } catch (proxyErr: any) {
+    log.debug("PROXY", `Failed to resolve proxy: ${proxyErr.message}`);
+    return null;
+  }
+}
+
+function safeLogEvents({
+  result,
+  proxyInfo,
+  proxyLatency,
+  provider,
+  model,
+  sourceFormat,
+  targetFormat,
+  credentials,
+  comboName,
+  clientRawRequest,
+  tlsFingerprintUsed = false,
+}) {
+  try {
+    logProxyEvent({
+      status: result.success
+        ? "success"
+        : result.status === 408 || result.status === 504
+          ? "timeout"
+          : "error",
+      proxy: proxyInfo?.proxy || null,
+      level: proxyInfo?.level || "direct",
+      levelId: proxyInfo?.levelId || null,
+      provider,
+      targetUrl: `${provider}/${model}`,
+      latencyMs: proxyLatency,
+      error: result.success ? null : result.error || null,
+      connectionId: credentials.connectionId,
+      comboId: comboName || null,
+      account: credentials.connectionId?.slice(0, 8) || null,
+      tlsFingerprint: tlsFingerprintUsed,
+    });
+  } catch {}
+  try {
+    logTranslationEvent({
+      provider,
+      model,
+      sourceFormat,
+      targetFormat,
+      status: result.success ? "success" : "error",
+      statusCode: result.success ? 200 : result.status || 500,
+      latency: proxyLatency,
+      endpoint: clientRawRequest?.endpoint || "/v1/chat/completions",
+      connectionId: credentials.connectionId || null,
+      comboName: comboName || null,
+    });
+  } catch {}
+}
+
+function withSessionHeader(response: Response, sessionId: string | null): Response {
+  if (!response || !sessionId) return response;
+
+  try {
+    response.headers.set("X-OmniRoute-Session-Id", sessionId);
+    return response;
+  } catch {
+    const cloned = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    cloned.headers.set("X-OmniRoute-Session-Id", sessionId);
+    return cloned;
+  }
+}

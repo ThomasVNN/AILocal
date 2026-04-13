@@ -151,6 +151,7 @@ build_openwebui() {
     "$platform" \
     "$ROOT_DIR/open-webui/Dockerfile" \
     "$ROOT_DIR/open-webui" \
+    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OPENWEBUI_BUILD_NODE_OPTIONS '--max-old-space-size=8192')" \
     --build-arg USE_OLLAMA="$(resolve_value OPENWEBUI_BUILD_USE_OLLAMA 'false')" \
     --build-arg USE_SLIM="$(resolve_value OPENWEBUI_BUILD_USE_SLIM 'true')" \
     --build-arg USE_PERMISSION_HARDENING="$(resolve_value OPENWEBUI_BUILD_USE_PERMISSION_HARDENING 'false')" \

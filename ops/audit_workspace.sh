@@ -34,12 +34,20 @@ show_path "legacy/unified-stack"
 show_path "legacy/quarantine"
 show_path "artifacts/images"
 show_path "artifacts/backups"
-show_path "OmniRoute-merge"
+if [[ -e "$ROOT_DIR/OmniRoute-merge" ]]; then
+  show_path "OmniRoute-merge"
+else
+  printf 'INFO OmniRoute-merge (not present in this workspace snapshot)\n'
+fi
 
 section "Top-level Sizes"
 (
   cd "$ROOT_DIR"
-  du -sh .localagent-data legacy artifacts OmniRoute OmniRoute-merge openclaw open-webui claude-code 2>/dev/null | sort -h
+  size_paths=(.localagent-data legacy artifacts OmniRoute openclaw open-webui claude-code)
+  if [[ -e "$ROOT_DIR/OmniRoute-merge" ]]; then
+    size_paths+=(OmniRoute-merge)
+  fi
+  du -sh "${size_paths[@]}" 2>/dev/null | sort -h
 )
 
 if command -v docker >/dev/null 2>&1; then
