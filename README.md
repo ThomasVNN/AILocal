@@ -1,5 +1,7 @@
 # LocalAgent (2-layer Docker Stack)
 
+> AI/coding agents: read `AGENTS.md` first. It is the collaboration entrypoint for coding safely in this forked LocalAgent product architecture, and it points to the detailed continuation guide in `docs/LOCALAGENT_IMPLEMENTATION_CONTINUATION.md`.
+
 LocalAgent gồm 2 layer:
 - **Layer 1 (platform/infra):** Postgres + Redis + MinIO + Traefik
 - **Layer 2 (apps/compute):** OmniRoute + OpenWebUI + OpenClaw
