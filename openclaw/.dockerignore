@@ -12,6 +12,8 @@
 **/.tmp
 .DS_Store
 **/.DS_Store
+._*
+**/._*
 *.png
 *.jpg
 *.jpeg

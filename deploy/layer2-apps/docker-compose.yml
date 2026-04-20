@@ -23,7 +23,7 @@ services:
     image: ${OMNIROUTE_IMAGE:-omniroute:intel}
     build: *omniroute-build
     platform: ${OMNIROUTE_PLATFORM:-linux/amd64}
-    pull_policy: never
+    pull_policy: ${APP_PULL_POLICY:-never}
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -80,7 +80,7 @@ services:
     image: ${OPENWEBUI_IMAGE:-open-webui:intel}
     build: *openwebui-build
     platform: ${OPENWEBUI_PLATFORM:-linux/amd64}
-    pull_policy: never
+    pull_policy: ${APP_PULL_POLICY:-never}
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -127,7 +127,7 @@ services:
     image: ${OPENCLAW_IMAGE:-openclaw:intel}
     build: *openclaw-build
     platform: ${OPENCLAW_PLATFORM:-linux/amd64}
-    pull_policy: never
+    pull_policy: ${APP_PULL_POLICY:-never}
     restart: unless-stopped
     cap_drop:
       - NET_RAW
@@ -186,7 +186,7 @@ services:
   openclaw-cli:
     image: ${OPENCLAW_IMAGE:-openclaw:intel}
     platform: ${OPENCLAW_PLATFORM:-linux/amd64}
-    pull_policy: never
+    pull_policy: ${APP_PULL_POLICY:-never}
     network_mode: "service:openclaw-gateway"
     cap_drop:
       - NET_RAW

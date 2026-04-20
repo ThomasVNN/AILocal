@@ -136,7 +136,7 @@ OMNIROUTE_NEXT_BUILD_CPUS=1 OMNIROUTE_BUILD_NODE_OPTIONS="--max-old-space-size=2
 
 ### 3.2 Server deploy (Linux qua Tailscale)
 
-Mục tiêu hiện tại của script server: build toàn bộ app layer từ source workspace trên máy dev, upload image tar sang server, rollout `platform -> omniroute -> open-webui/openclaw`, rồi verify end-to-end.
+Mục tiêu hiện tại của script server: publish full-stack multi-arch images lên registry UAT, upload deploy bundle sang server, rollout `platform -> omniroute -> open-webui/openclaw`, rồi verify end-to-end.
 
 Chạy tại repo root (trên máy Mac):
 ```bash
@@ -144,24 +144,38 @@ bash ops/agent.sh deploy server
 ```
 
 Script `ops/deploy_server.sh` làm:
-1) Build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` trên máy Mac.
-2) `docker save` app images → gzip thành tar.
-3) Bundle `deploy/` rồi upload lên server (không sync `deploy/env/stack.env`).
+1) Publish full-stack multi-arch images lên `mizuk1210.mulley-ray.ts.net:9999`.
+   - Layer 1 platform images: mirror upstream vào `localagent-platform/*`.
+   - Layer 2 app images: build từ source vào `localagent-apps/*`.
+   - Platforms mặc định: `linux/arm64,linux/amd64`.
+2) Bundle `deploy/` rồi upload lên server (không sync `deploy/env/stack.env`).
+3) Reconcile server env sang registry image refs và `APP_PULL_POLICY=missing`.
 4) Trên server:
-   - reconcile env về source-built app tags
    - migrate env sang HTTPS mặc định (`ensure_https_env.sh`)
+   - pull Layer 1 + Layer 2 images từ registry
    - `stack.sh platform up -d` để generate cert + restart Traefik
    - chờ `postgres-primary` + `redis` healthy
    - `bootstrap_openclaw.sh` để cập nhật allowed origins / trusted proxy / device-auth policy
-   - `docker load` app image tar
-   - `stack.sh apps up -d --no-deps omniroute`
+   - `stack.sh apps up -d --no-build --no-deps omniroute`
    - chờ `omniroute` healthy
    - `bootstrap_app_clients.sh` để đồng bộ OmniRoute app keys và OpenWebUI/OpenClaw runtime config
-   - `stack.sh apps up -d --no-deps openclaw-cli`
+   - `stack.sh apps up -d --no-build --no-deps openclaw-cli`
 5) Healthcheck từ server qua HTTPS loopback-resolve:
    - `ENV_FILE=~/localagent/deploy/env/stack.env bash deploy/scripts/healthcheck.sh server`
 6) Smoke test từ server:
    - `ENV_FILE=~/localagent/deploy/env/stack.env bash deploy/scripts/smoke_stack.sh server`
+
+Publish images without deploying:
+```bash
+LOCALAGENT_IMAGE_REGISTRY=mizuk1210.mulley-ray.ts.net:9999 \
+LOCALAGENT_IMAGE_TAG=dev \
+bash deploy/scripts/publish_multiarch_images.sh all
+```
+
+Tar fallback:
+```bash
+SERVER_DEPLOY_IMAGE_TRANSPORT=tar bash ops/agent.sh deploy server
+```
 
 **SSH auth**
 - `SERVER_SSH_KEY` là đường chuẩn.

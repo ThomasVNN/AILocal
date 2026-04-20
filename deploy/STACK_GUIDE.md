@@ -84,10 +84,14 @@ ${LA_DATA_ROOT:-/data/localagent}/
 - `OpenClaw gateway` hiện cũng theo hướng single instance + externalized config/workspace volume.
 
 ## 6) Release từng phần (upgrade từng service)
-- App layer không dùng remote release image. Trước mỗi partial release, build lại image đúng service từ source workspace.
+- Local source mode: trước mỗi partial release, build lại image đúng service từ source workspace.
 - OmniRoute: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh omniroute && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute`
 - OpenWebUI: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh open-webui && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps open-webui`
 - OpenClaw: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/build_app_images.sh openclaw && ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps up -d --no-deps openclaw-gateway openclaw-cli`
+- Registry mode: publish image mới rồi pull/up bằng `--no-build`.
+- Publish all: `LOCALAGENT_IMAGE_REGISTRY=mizuk1210.mulley-ray.ts.net:9999 bash deploy/scripts/publish_multiarch_images.sh all`
+- Publish one app: `LOCALAGENT_IMAGE_REGISTRY=mizuk1210.mulley-ray.ts.net:9999 bash deploy/scripts/publish_multiarch_images.sh omniroute`
+- Rollout registry app: `ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps pull omniroute && ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-build --no-deps omniroute`
 - Sau khi upgrade `omniroute`, `open-webui`, hoặc `openclaw-gateway`, chạy lại `bash deploy/scripts/bootstrap_app_clients.sh` để đồng bộ app keys/runtime config
 
 ## 6.1) HTTPS local/server

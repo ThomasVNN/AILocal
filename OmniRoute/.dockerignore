@@ -5,6 +5,10 @@
 # Editor
 .vscode
 **/.vscode
+.DS_Store
+**/.DS_Store
+._*
+**/._*
 
 # Dependencies and build output
 node_modules

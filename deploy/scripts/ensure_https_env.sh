@@ -51,7 +51,8 @@ omniroute_host="$(read_env_value OMNIROUTE_HOST || true)"
 if [[ -z "$omniroute_host" ]]; then
   omniroute_host="router.localagent.local"
 fi
-https_port="$(read_env_value TRAEFIK_HTTPS_PORT || echo 443)"
+http_port="${TRAEFIK_HTTP_PORT:-$(read_env_value TRAEFIK_HTTP_PORT || echo 80)}"
+https_port="${TRAEFIK_HTTPS_PORT:-$(read_env_value TRAEFIK_HTTPS_PORT || echo 443)}"
 if [[ "$https_port" == "443" ]]; then
   public_suffix=""
 else
@@ -59,8 +60,8 @@ else
 fi
 
 env_set "TRAEFIK_TLS_ENABLED" "true"
-env_set "TRAEFIK_HTTP_PORT" "$(read_env_value TRAEFIK_HTTP_PORT || echo 80)"
-env_set "TRAEFIK_HTTPS_PORT" "$(read_env_value TRAEFIK_HTTPS_PORT || echo 443)"
+env_set "TRAEFIK_HTTP_PORT" "$http_port"
+env_set "TRAEFIK_HTTPS_PORT" "$https_port"
 env_set "TRAEFIK_HSTS_SECONDS" "$(read_env_value TRAEFIK_HSTS_SECONDS || echo 0)"
 env_set "TRAEFIK_EDGE_IP" "$(read_env_value TRAEFIK_EDGE_IP || echo 172.23.0.2)"
 env_set "OMNIROUTE_PUBLIC_URL" "https://$omniroute_host$public_suffix"

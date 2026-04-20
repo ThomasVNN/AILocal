@@ -400,6 +400,7 @@ Add thin wrappers for repeatable local verification:
 - OpenWebUI frontend/backend checks.
 - OpenClaw fast/gateway/check/build.
 - App image builds through `deploy/scripts/build_app_images.sh`.
+- Full-stack multi-arch registry publish through `deploy/scripts/publish_multiarch_images.sh`.
 
 The wrapper should preserve the native component commands so contributors can still run them directly.
 
@@ -468,7 +469,9 @@ Deploy/script-level checks currently available or expected in this workspace:
 
 - `bash deploy/scripts/tests/smoke_stack_test.sh`
 - `bash deploy/scripts/tests/openwebui_schema_guard_test.sh`
+- `bash deploy/scripts/tests/image_registry_test.sh`
 - `bash deploy/scripts/build_app_images.sh all`
+- `bash deploy/scripts/publish_multiarch_images.sh --dry-run all`
 - `bash deploy/scripts/bootstrap_app_clients.sh`
 - `bash deploy/scripts/bootstrap_openclaw.sh`
 - `bash deploy/scripts/smoke_stack.sh`

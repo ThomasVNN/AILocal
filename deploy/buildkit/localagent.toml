@@ -1,0 +1,3 @@
+[registry."mizuk1210.mulley-ray.ts.net:9999"]
+  http = true
+  insecure = true

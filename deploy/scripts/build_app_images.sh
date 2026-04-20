@@ -42,6 +42,38 @@ platform_to_arch() {
   esac
 }
 
+default_build_platform() {
+  local docker_platform
+  docker_platform="$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null || true)"
+  if [[ -n "$docker_platform" && "$docker_platform" != *"<no value>"* ]]; then
+    printf '%s' "$docker_platform"
+    return 0
+  fi
+
+  case "$(uname -m)" in
+    arm64|aarch64) printf 'linux/arm64' ;;
+    x86_64|amd64) printf 'linux/amd64' ;;
+    *)
+      echo "Unsupported build host architecture: $(uname -m)" >&2
+      return 1
+      ;;
+  esac
+}
+
+dockerfile_requires_buildkit() {
+  local dockerfile="$1"
+
+  if grep -Eq -- '--mount=' "$dockerfile"; then
+    return 0
+  fi
+
+  if grep -Eq -- 'FROM[[:space:]]+--platform=\$[{]?(BUILDPLATFORM|TARGETPLATFORM)[}]?' "$dockerfile"; then
+    return 0
+  fi
+
+  return 1
+}
+
 build_local_image() {
   local tag="$1"
   local platform="$2"
@@ -51,12 +83,14 @@ build_local_image() {
 
   local targetarch
   targetarch="$(platform_to_arch "$platform")"
+  local buildplatform
+  buildplatform="${BUILDPLATFORM:-$(default_build_platform)}"
 
   local requires_buildkit="0"
   local prefer_buildx="${DEPLOY_LOCAL_PREFER_BUILDX:-0}"
   local buildkit_progress="${BUILDKIT_PROGRESS:-plain}"
 
-  if grep -q -- '--mount=' "$dockerfile"; then
+  if dockerfile_requires_buildkit "$dockerfile"; then
     requires_buildkit="1"
   fi
 
@@ -65,6 +99,7 @@ build_local_image() {
     --platform "$platform"
     --progress "$buildkit_progress"
     --build-arg TARGETARCH="$targetarch"
+    --build-arg BUILDPLATFORM="$buildplatform"
     -t "$tag"
     -f "$dockerfile"
   )
@@ -73,6 +108,7 @@ build_local_image() {
     --platform "$platform"
     --progress "$buildkit_progress"
     --build-arg TARGETARCH="$targetarch"
+    --build-arg BUILDPLATFORM="$buildplatform"
     -t "$tag"
     -f "$dockerfile"
   )
@@ -112,6 +148,7 @@ build_local_image() {
   local legacy_cmd=(
     docker build
     --build-arg TARGETARCH="$targetarch"
+    --build-arg BUILDPLATFORM="$buildplatform"
     -t "$tag"
     -f "$dockerfile"
   )
@@ -135,8 +172,8 @@ build_omniroute() {
     "$ROOT_DIR/OmniRoute/Dockerfile" \
     "$ROOT_DIR/OmniRoute" \
     --target "$(resolve_value OMNIROUTE_BUILD_TARGET 'runner-base')" \
-    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OMNIROUTE_BUILD_NODE_OPTIONS '--max-old-space-size=3072')" \
-    --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$(resolve_value OMNIROUTE_NEXT_BUILD_CPUS '2')" \
+    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OMNIROUTE_BUILD_NODE_OPTIONS '--max-old-space-size=2048')" \
+    --build-arg OMNIROUTE_NEXT_BUILD_CPUS="$(resolve_value OMNIROUTE_NEXT_BUILD_CPUS '1')" \
     --build-arg NPM_CONFIG_STRICT_SSL="$(resolve_value OMNIROUTE_BUILD_NPM_STRICT_SSL 'true')" \
     --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OMNIROUTE_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '1')"
 }
@@ -151,7 +188,7 @@ build_openwebui() {
     "$platform" \
     "$ROOT_DIR/open-webui/Dockerfile" \
     "$ROOT_DIR/open-webui" \
-    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OPENWEBUI_BUILD_NODE_OPTIONS '--max-old-space-size=8192')" \
+    --build-arg BUILD_NODE_OPTIONS="$(resolve_value OPENWEBUI_BUILD_NODE_OPTIONS '--max-old-space-size=4096')" \
     --build-arg USE_OLLAMA="$(resolve_value OPENWEBUI_BUILD_USE_OLLAMA 'false')" \
     --build-arg USE_SLIM="$(resolve_value OPENWEBUI_BUILD_USE_SLIM 'true')" \
     --build-arg USE_PERMISSION_HARDENING="$(resolve_value OPENWEBUI_BUILD_USE_PERMISSION_HARDENING 'false')" \
@@ -173,8 +210,8 @@ build_openclaw() {
     --build-arg OPENCLAW_BUILD_CURL_INSECURE="$(resolve_value OPENCLAW_BUILD_CURL_INSECURE '0')" \
     --build-arg OPENCLAW_NODE_BOOKWORM_IMAGE="$(resolve_value OPENCLAW_BUILD_NODE_BOOKWORM_IMAGE 'node:24-bookworm')" \
     --build-arg OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="$(resolve_value OPENCLAW_BUILD_NODE_BOOKWORM_SLIM_IMAGE 'node:24-bookworm-slim')" \
-    --build-arg OPENCLAW_VARIANT="$(resolve_value OPENCLAW_BUILD_VARIANT 'default')" \
-    --build-arg OPENCLAW_DOCKER_APT_UPGRADE="$(resolve_value OPENCLAW_BUILD_APT_UPGRADE '1')"
+    --build-arg OPENCLAW_VARIANT="$(resolve_value OPENCLAW_BUILD_VARIANT 'slim')" \
+    --build-arg OPENCLAW_DOCKER_APT_UPGRADE="$(resolve_value OPENCLAW_BUILD_APT_UPGRADE '0')"
 }
 
 normalize_service_name() {
@@ -199,17 +236,21 @@ for service in "$@"; do
   _requested="${_requested}$(normalize_service_name "$service") "
 done
 
-if [[ "$_requested" == *" omniroute "* ]]; then
-  echo "Building OmniRoute image from workspace source..."
-  build_omniroute
-fi
+main() {
+  if [[ "$_requested" == *" omniroute "* ]]; then
+    echo "Building OmniRoute image from workspace source..."
+    build_omniroute
+  fi
 
-if [[ "$_requested" == *" open-webui "* ]]; then
-  echo "Building OpenWebUI image from workspace source..."
-  build_openwebui
-fi
+  if [[ "$_requested" == *" open-webui "* ]]; then
+    echo "Building OpenWebUI image from workspace source..."
+    build_openwebui
+  fi
 
-if [[ "$_requested" == *" openclaw "* ]]; then
-  echo "Building OpenClaw image from workspace source..."
-  build_openclaw
-fi
+  if [[ "$_requested" == *" openclaw "* ]]; then
+    echo "Building OpenClaw image from workspace source..."
+    build_openclaw
+  fi
+}
+
+main "$@"

@@ -1,5 +1,8 @@
 .github
 .DS_Store
+**/.DS_Store
+._*
+**/._*
 docs
 kubernetes
 node_modules
@@ -18,3 +21,12 @@ uploads
 **/*.db
 _test
 backend/data/*
+.git
+.gitignore
+Dockerfile
+*.log
+backend/data
+backend/data/cache
+dist
+build
+*.pyc

@@ -79,19 +79,29 @@ bash ops/agent.sh deploy server
 ```
 
 Thực tế script server sẽ:
-1. build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` từ source workspace hiện tại
-2. đóng gói `deploy/` và app image tar rồi upload lên server
-3. reconcile remote env về source-built app tags
+1. mặc định publish full-stack multi-arch images lên registry `mizuk1210.mulley-ray.ts.net:9999`
+   - Layer 1 platform images được mirror từ upstream vào `localagent-platform/*`
+   - Layer 2 app images được build từ source workspace vào `localagent-apps/*`
+   - platforms mặc định: `linux/arm64,linux/amd64`
+2. đóng gói riêng `deploy/` rồi upload lên server
+3. reconcile remote env về registry image tags và `APP_PULL_POLICY=missing`
 4. chạy `ensure_https_env.sh` trên server
-5. start/reconcile `platform`
-6. chờ `postgres-primary` và `redis` healthy
-7. bootstrap OpenClaw config
-8. `docker load` app image tar
-9. start `omniroute` trước và chờ healthy
+5. pull/reconcile `platform` và `apps` images từ registry
+6. start/reconcile `platform`
+7. chờ `postgres-primary` và `redis` healthy
+8. bootstrap OpenClaw config
+9. start `omniroute` trước bằng `--no-build` và chờ healthy
 10. chạy `bootstrap_app_clients.sh`, từ đó mới create/restart `open-webui` + `openclaw-gateway`
-11. start `openclaw-cli`
+11. start `openclaw-cli` bằng `--no-build`
 12. healthcheck
 13. smoke test end-to-end
+
+Fallback cũ vẫn tồn tại:
+```bash
+SERVER_DEPLOY_IMAGE_TRANSPORT=tar bash ops/agent.sh deploy server
+```
+
+Fallback này build `omniroute:intel`, `open-webui:intel`, `openclaw:intel`, upload image tar, rồi `docker load` trên server.
 
 ## 5) App auth bootstrap specifics
 

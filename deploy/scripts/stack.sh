@@ -7,6 +7,23 @@ ENV_FILE="${ENV_FILE:-$DEPLOY_DIR/env/stack.env}"
 platform_compose="$DEPLOY_DIR/layer1-platform/docker-compose.yml"
 apps_compose="$DEPLOY_DIR/layer2-apps/docker-compose.yml"
 
+read_env_value() {
+  local key="$1"
+  local line
+  line="$(grep -E "^[[:space:]]*${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    return 1
+  fi
+  printf '%s' "${line#*=}"
+}
+
+normalize_bool() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|y|on) printf 'true' ;;
+    *) printf 'false' ;;
+  esac
+}
+
 usage() {
   cat >&2 <<EOF
 Usage:
@@ -40,9 +57,13 @@ target="$1"
 shift
 
 if [[ "$target" == "apps" && "${1:-}" == "pull" ]]; then
-  echo "Remote image pulls are disabled for layer2-apps." >&2
-  echo "Build app images from workspace source via ops/deploy_local.sh, ops/deploy_server.sh, or deploy/scripts/build_app_images.sh." >&2
-  exit 2
+  registry_images_enabled="$(normalize_bool "$(read_env_value LOCALAGENT_USE_REGISTRY_IMAGES || true)")"
+  app_pull_allowed="$(normalize_bool "${LOCALAGENT_ALLOW_APP_PULL:-false}")"
+  if [[ "$registry_images_enabled" != "true" && "$app_pull_allowed" != "true" ]]; then
+    echo "Remote image pulls are disabled for layer2-apps unless registry images are enabled." >&2
+    echo "Build app images from workspace source via ops/deploy_local.sh, ops/deploy_server.sh, or deploy/scripts/build_app_images.sh." >&2
+    exit 2
+  fi
 fi
 
 case "$target" in

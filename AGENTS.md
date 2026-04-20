@@ -81,7 +81,9 @@ Common checks:
 - Workspace audit: `bash ops/audit_workspace.sh`
 - Deploy script tests: `bash deploy/scripts/tests/smoke_stack_test.sh`
 - OpenWebUI schema guard tests: `bash deploy/scripts/tests/openwebui_schema_guard_test.sh`
+- Registry image tests: `bash deploy/scripts/tests/image_registry_test.sh`
 - App image build: `bash deploy/scripts/build_app_images.sh all`
+- Full-stack multi-arch publish dry-run: `bash deploy/scripts/publish_multiarch_images.sh --dry-run all`
 - Stack health: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/healthcheck.sh local`
 - Stack smoke: `ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/smoke_stack.sh local`
 

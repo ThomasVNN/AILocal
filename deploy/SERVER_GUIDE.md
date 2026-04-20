@@ -32,9 +32,12 @@ Source of truth vận hành: `deploy/DEPLOY_KNOWLEDGE.md`
 - `bash deploy/scripts/bootstrap_openclaw.sh`
   - bước này sẽ set origin HTTPS cho Control UI, trust Traefik proxy IP, và giữ `OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=false` trừ khi bạn chủ động đổi env
 
-6) Rollout app layer từ máy dev/build host:
+6) Rollout full stack images từ máy dev/build host:
 - `bash ops/agent.sh deploy server`
-- script sẽ build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` từ source workspace, upload image tar sang server, `docker load`, start `omniroute` trước, rồi mới reconcile `open-webui` + `openclaw`
+- default script sẽ publish full-stack multi-arch images lên `mizuk1210.mulley-ray.ts.net:9999`, upload `deploy/` sang server, pull images từ registry, start `omniroute` trước bằng `--no-build`, rồi mới reconcile `open-webui` + `openclaw`
+- Layer 1 platform images được mirror vào `localagent-platform/*`
+- Layer 2 app images được build từ source vào `localagent-apps/*`
+- fallback cũ: `SERVER_DEPLOY_IMAGE_TRANSPORT=tar bash ops/agent.sh deploy server`
 
 7) Reconcile app auth/runtime:
 - `bash deploy/scripts/bootstrap_app_clients.sh`
@@ -64,8 +67,9 @@ Ghi chú: nếu bạn truy cập qua Tailscale, `<server-ip>` có thể là IP T
 - Nếu truy cập từ Mac client, copy file CA này về máy client và trust nó để bỏ cảnh báo cert.
 
 ## Upgrade / Rollback nhanh
-- Upgrade 1 service: build lại image từ source rồi rollout từng service theo `deploy/STACK_GUIDE.md`
-- Rollback: `docker load` lại image tar cũ với đúng tag (`omniroute:intel`, `open-webui:intel`, `openclaw:intel`) rồi chạy lại `bash deploy/scripts/stack.sh apps up -d --no-deps <service>`
+- Upgrade 1 service: publish lại registry image rồi rollout từng service theo `deploy/STACK_GUIDE.md`
+- Rollback registry: đổi `LOCALAGENT_IMAGE_TAG` trong env về tag cũ, chạy `bash deploy/scripts/reconcile_app_image_env.sh server deploy/env/stack.env`, rồi `ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps pull && ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-build --no-deps <service>`
+- Rollback tar fallback: `docker load` lại image tar cũ với đúng tag (`omniroute:intel`, `open-webui:intel`, `openclaw:intel`) rồi chạy lại `bash deploy/scripts/stack.sh apps up -d --no-build --no-deps <service>`
 
 ## Backup
 - Postgres backup tự chạy (xem `${LA_DATA_ROOT:-/data/localagent}/platform/backups/postgres`)

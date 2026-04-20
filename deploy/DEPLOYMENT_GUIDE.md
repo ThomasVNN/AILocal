@@ -197,7 +197,19 @@ Local default hiện tại:
 - `OpenWebUI`: build từ source trong workspace
 - `OpenClaw`: build từ source trong workspace
 
-App layer không còn chấp nhận `docker compose pull`. Nếu image app chưa tồn tại local, operator phải build lại từ source bằng `bash ops/agent.sh deploy local` hoặc `ENV_FILE=... bash deploy/scripts/build_app_images.sh`.
+App layer source mode không chấp nhận `docker compose pull`. Nếu image app chưa tồn tại local, operator phải build lại từ source bằng `bash ops/agent.sh deploy local` hoặc `ENV_FILE=... bash deploy/scripts/build_app_images.sh`.
+
+App layer registry mode chấp nhận `docker compose pull` thông qua `deploy/scripts/stack.sh` khi `LOCALAGENT_USE_REGISTRY_IMAGES=true`.
+
+Nếu muốn local dùng cùng registry multi-arch với UAT/server, bật registry mode trong env rồi reconcile:
+
+```bash
+LOCALAGENT_USE_REGISTRY_IMAGES=true \
+LOCALAGENT_IMAGE_REGISTRY=mizuk1210.mulley-ray.ts.net:9999 \
+bash deploy/scripts/reconcile_app_image_env.sh local deploy/env/stack.local.env
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh platform pull
+ENV_FILE=deploy/env/stack.local.env bash deploy/scripts/stack.sh apps pull omniroute open-webui openclaw-gateway openclaw-cli
+```
 
 Khi xong, các URL local chuẩn là:
 
@@ -305,13 +317,20 @@ Bước này sẽ:
 bash deploy/scripts/bootstrap_openclaw.sh
 ```
 
-### 8.6 Rollout app layer từ source
+### 8.6 Rollout app layer từ registry
 
 Khuyến nghị: chạy từ máy dev/build host:
 
 ```bash
 bash ops/agent.sh deploy server
 ```
+
+Mặc định lệnh này dùng registry transport:
+
+- mirror Layer 1 images vào `mizuk1210.mulley-ray.ts.net:9999/localagent-platform/*`
+- build/push Layer 2 multi-arch images vào `mizuk1210.mulley-ray.ts.net:9999/localagent-apps/*`
+- upload `deploy/` lên server
+- pull images trên server rồi rollout app bằng `--no-build`
 
 Nếu server cũng giữ full source checkout và bạn chủ động build trực tiếp trên server:
 
@@ -344,16 +363,16 @@ bash ops/agent.sh deploy server
 
 Script hiện sẽ:
 
-1. build `omniroute:intel`, `open-webui:intel`, `openclaw:intel` trên máy dev từ source workspace hiện tại
-2. đóng gói `deploy/` và image tar rồi upload lên server
-3. reconcile remote env về source-built app tags
+1. publish full-stack multi-arch images lên registry
+2. đóng gói `deploy/` rồi upload lên server
+3. reconcile remote env về registry image tags
 4. ensure HTTPS env trên server
-5. start/reconcile `platform`
-6. bootstrap OpenClaw config
-7. `docker load` app image tar trên server
-8. start `omniroute` trước và chờ healthy
+5. pull Layer 1 và Layer 2 images từ registry
+6. start/reconcile `platform`
+7. bootstrap OpenClaw config
+8. start `omniroute` trước bằng `--no-build` và chờ healthy
 9. reconcile app auth/runtime, từ đó mới create/restart `open-webui` và `openclaw-gateway`
-10. start `openclaw-cli`
+10. start `openclaw-cli` bằng `--no-build`
 11. healthcheck
 12. smoke test
 
@@ -365,6 +384,10 @@ Các biến có thể override:
 - `SERVER_SSH_KEY`
 - `SERVER_SSH_PASS`
 - `SERVER_STRICT_HOST_KEY_CHECKING`
+- `SERVER_DEPLOY_IMAGE_TRANSPORT=registry|tar` (default `registry`)
+- `LOCALAGENT_IMAGE_REGISTRY` (default `mizuk1210.mulley-ray.ts.net:9999`)
+- `LOCALAGENT_IMAGE_TAG` (default `dev`)
+- `LOCALAGENT_IMAGE_PLATFORMS` (default `linux/arm64,linux/amd64`)
 
 Ví dụ:
 
@@ -374,6 +397,26 @@ SERVER_DIR='~/localagent' \
 SERVER_ENV_FILE='~/localagent/deploy/env/stack.env' \
 SERVER_SSH_KEY="$HOME/.ssh/id_ed25519" \
 bash ops/agent.sh deploy server
+```
+
+Publish images without deploying:
+
+```bash
+LOCALAGENT_IMAGE_REGISTRY=mizuk1210.mulley-ray.ts.net:9999 \
+LOCALAGENT_IMAGE_TAG=dev \
+bash deploy/scripts/publish_multiarch_images.sh all
+```
+
+Dry-run the publish commands:
+
+```bash
+bash deploy/scripts/publish_multiarch_images.sh --dry-run all
+```
+
+Tar fallback:
+
+```bash
+SERVER_DEPLOY_IMAGE_TRANSPORT=tar bash ops/agent.sh deploy server
 ```
 
 ## 10. Verify sau deploy
@@ -432,16 +475,26 @@ sudo -E bash deploy/scripts/backup_snapshot.sh
 
 ### 11.2 Rollback nhanh
 
-Rollback chuẩn:
+Rollback registry:
 
-1. `docker load` lại image tar cũ với đúng source-built tag
-2. restart đúng service
+1. đổi `LOCALAGENT_IMAGE_TAG` trong env về tag cũ
+2. chạy `bash deploy/scripts/reconcile_app_image_env.sh server deploy/env/stack.env`
+3. pull và restart đúng service bằng `--no-build`
 
 Ví dụ:
 
 ```bash
+LOCALAGENT_IMAGE_TAG=git-oldsha bash deploy/scripts/reconcile_app_image_env.sh server deploy/env/stack.env
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps pull omniroute
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-build --no-deps omniroute
+```
+
+Rollback tar fallback:
+
+```bash
 docker load < artifacts/images/archives/localagent-app-images.tar
-ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-deps omniroute
+LOCALAGENT_USE_REGISTRY_IMAGES=false bash deploy/scripts/reconcile_app_image_env.sh server deploy/env/stack.env
+ENV_FILE=deploy/env/stack.env bash deploy/scripts/stack.sh apps up -d --no-build --no-deps omniroute
 ```
 
 Nếu rollback ảnh hưởng app config/runtime, chạy lại:

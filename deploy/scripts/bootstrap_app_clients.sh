@@ -53,8 +53,18 @@ is_placeholder_key() {
   [[ -z "$value" || "$value" == "bootstrap" || "$value" == "auto" || "$value" == "change-this-app-key" ]]
 }
 
-json_escape() {
-  node -e 'process.stdout.write(JSON.stringify(process.argv[1]));' "${1:-}"
+json_string() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '"%s"' "$value"
+}
+
+json_string_array() {
+  printf '[%s]' "$(json_string "${1:-}")"
 }
 
 OMNIROUTE_API_PORT="${OMNIROUTE_API_PORT:-$(read_env_value OMNIROUTE_API_PORT || true)}"
@@ -67,6 +77,7 @@ OMNIROUTE_NETWORK_BASE_URL="http://omniroute:${OMNIROUTE_API_PORT}/v1"
 OPENWEBUI_ENV_VALUE="$(read_env_value OPENWEBUI_OPENAI_API_KEY || true)"
 OPENCLAW_ENV_VALUE="$(read_env_value OPENCLAW_OPENAI_API_KEY || true)"
 REDIS_PASSWORD_VALUE="${REDIS_PASSWORD:-$(read_env_value REDIS_PASSWORD || true)}"
+OPENCLAW_GATEWAY_TOKEN_VALUE="${OPENCLAW_GATEWAY_TOKEN:-$(read_env_value OPENCLAW_GATEWAY_TOKEN || true)}"
 
 echo "Reconciling OmniRoute app API keys..."
 
@@ -131,6 +142,9 @@ if [[ "$OPENCLAW_ENV_VALUE" != "$OPENCLAW_APP_KEY" ]]; then
   set_env_value "OPENCLAW_OPENAI_API_KEY" "$OPENCLAW_APP_KEY"
 fi
 
+echo "Checking OpenWebUI schema state..."
+ENV_FILE="$ENV_FILE" bash "$DEPLOY_DIR/scripts/openwebui_schema_guard.sh"
+
 echo "Syncing OpenWebUI runtime config..."
 bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T postgres-primary \
   psql -U localagent -d openwebui -v ON_ERROR_STOP=1 \
@@ -162,8 +176,8 @@ SQL
 
 if [[ -n "$REDIS_PASSWORD_VALUE" ]]; then
   echo "Syncing OpenWebUI Redis config..."
-  OPENWEBUI_BASE_URLS_JSON="$(node -e 'process.stdout.write(JSON.stringify([process.argv[1]]));' "$OMNIROUTE_NETWORK_BASE_URL")"
-  OPENWEBUI_KEYS_JSON="$(node -e 'process.stdout.write(JSON.stringify([process.argv[1]]));' "$OPENWEBUI_APP_KEY")"
+  OPENWEBUI_BASE_URLS_JSON="$(json_string_array "$OMNIROUTE_NETWORK_BASE_URL")"
+  OPENWEBUI_KEYS_JSON="$(json_string_array "$OPENWEBUI_APP_KEY")"
   OPENWEBUI_CONFIGS_JSON='{"0":{"enable":true}}'
 
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
@@ -270,17 +284,18 @@ OPENCLAW_CONFIG_DIR="${LA_DATA_ROOT:-$(read_env_value LA_DATA_ROOT || true)}"
 if [[ -z "$OPENCLAW_CONFIG_DIR" ]]; then
   OPENCLAW_CONFIG_DIR="/data/localagent"
 fi
-OPENCLAW_CONFIG_FILE="$OPENCLAW_CONFIG_DIR/apps/openclaw/config/openclaw.json"
-mkdir -p "$(dirname "$OPENCLAW_CONFIG_FILE")"
+mkdir -p "$OPENCLAW_CONFIG_DIR/apps/openclaw/config"
 
 echo "Reconciling OpenClaw provider + default model config..."
-node - "$OPENCLAW_CONFIG_FILE" "$DISCOVERED_MODELS_JSON" "$OMNIROUTE_NETWORK_BASE_URL" "$OPENCLAW_DISABLE_DEVICE_AUTH" <<'NODE'
+bash "$DEPLOY_DIR/scripts/stack.sh" apps run --rm --no-deps --entrypoint node openclaw-gateway \
+  - "$DISCOVERED_MODELS_JSON" "$OMNIROUTE_NETWORK_BASE_URL" "$OPENCLAW_DISABLE_DEVICE_AUTH" "$OPENCLAW_GATEWAY_TOKEN_VALUE" <<'NODE'
 const fs = require("node:fs");
 
-const configPath = process.argv[2];
-const discoveredModels = JSON.parse(process.argv[3] || "[]");
-const baseUrl = process.argv[4];
-const disableDeviceAuth = process.argv[5] === "true";
+const configPath = "/home/node/.openclaw/openclaw.json";
+const discoveredModels = JSON.parse(process.argv[2] || "[]");
+const baseUrl = process.argv[3];
+const disableDeviceAuth = process.argv[4] === "true";
+const gatewayToken = process.argv[5] || "";
 
 const preferredIds = [
   "chatgpt-web2api/gpt-5.2",
@@ -305,7 +320,7 @@ if (fs.existsSync(configPath)) {
 config.gateway = config.gateway && typeof config.gateway === "object" ? config.gateway : {};
 config.gateway.auth =
   config.gateway.auth && typeof config.gateway.auth === "object" ? config.gateway.auth : {};
-config.gateway.auth.token = "${OPENCLAW_GATEWAY_TOKEN}";
+config.gateway.auth.token = gatewayToken;
 config.gateway.controlUi =
   config.gateway.controlUi && typeof config.gateway.controlUi === "object"
     ? config.gateway.controlUi
