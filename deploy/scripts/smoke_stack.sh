@@ -7,15 +7,10 @@ PREFERRED_SMOKE_MODELS=(
   "chatgpt-web2api/gpt-5.1"
   "perplexity-web2api/sonar-pro"
   "perplexity-web2api/sonar"
-  "gemini-web2api/gemini-2.5-pro"
-  "gemini-web2api/gemini-2.5-flash"
-  "claude/claude-sonnet-4-6"
 )
 SUPPORTED_SMOKE_PROVIDER_PREFIXES=(
   "chatgpt-web2api/"
   "perplexity-web2api/"
-  "gemini-web2api/"
-  "claude/"
 )
 
 read_env_value() {
@@ -68,6 +63,29 @@ for (const id of ids) {
 }
 
 process.stdout.write(resolved.join("\n"));
+NODE
+}
+
+has_required_direct_provider() {
+  local provider_summary="$1"
+  node - "$provider_summary" <<'NODE'
+const rows = JSON.parse(process.argv[2] || "[]");
+const required = new Set(["chatgpt-web2api", "perplexity-web2api"]);
+const hasProvider = Array.isArray(rows)
+  ? rows.some((row) => required.has(row?.provider) && Number(row?.active || 0) > 0)
+  : false;
+process.stdout.write(hasProvider ? "yes" : "no");
+NODE
+}
+
+count_active_direct_providers() {
+  local provider_summary="$1"
+  node - "$provider_summary" <<'NODE'
+const rows = JSON.parse(process.argv[2] || "[]");
+const total = Array.isArray(rows)
+  ? rows.reduce((sum, row) => sum + Number(row?.active || 0), 0)
+  : 0;
+process.stdout.write(String(total));
 NODE
 }
 
@@ -252,6 +270,7 @@ main() {
   TRAEFIK_TLS_ENABLED="$(read_env_value TRAEFIK_TLS_ENABLED || echo true)"
   TRAEFIK_HTTP_PORT="$(read_env_value TRAEFIK_HTTP_PORT || echo 80)"
   TRAEFIK_HTTPS_PORT="$(read_env_value TRAEFIK_HTTPS_PORT || echo 443)"
+  OMNIROUTE_HOST="$(read_env_value OMNIROUTE_HOST || echo router.localagent.local)"
   OMNIROUTE_API_HOST="$(read_env_value OMNIROUTE_API_HOST || echo api.localagent.local)"
   REDIS_PASSWORD="$(read_env_value REDIS_PASSWORD || true)"
   OPENWEBUI_OPENAI_API_KEY="$(read_env_value OPENWEBUI_OPENAI_API_KEY || true)"
@@ -262,8 +281,8 @@ main() {
 
   echo "Smoke test mode=$mode"
 
-  echo "[1/5] Verify OmniRoute public catalog"
-  models_payload="$(curl_host "$OMNIROUTE_API_HOST" "/v1/models")"
+  echo "[1/5] Verify OmniRoute direct router catalog"
+  models_payload="$(curl_host "$OMNIROUTE_HOST" "/v1/models")"
   model_count="$(node -e 'const payload = JSON.parse(process.argv[1]); process.stdout.write(String(Array.isArray(payload.data) ? payload.data.length : 0));' "$models_payload")"
   if [[ "${model_count:-0}" -lt 1 ]]; then
     echo "FAIL: OmniRoute returned no models" >&2
@@ -279,26 +298,28 @@ main() {
     echo "FAIL: OmniRoute catalog exposed no supported central smoke models" >&2
     exit 1
   fi
-  echo "OK: OmniRoute exposes $model_count models"
+  echo "OK: OmniRoute exposes $model_count models on $OMNIROUTE_HOST"
 
-  echo "[2/5] Verify configured central providers in OmniRoute"
-  configured_provider_count="$(
+  echo "[2/5] Verify configured direct-routing providers in OmniRoute"
+  provider_summary="$(
     bash "$DEPLOY_DIR/scripts/stack.sh" apps exec -T omniroute node <<'NODE'
 const Database = require("better-sqlite3");
 const db = new Database("/app/data/storage.sqlite", { readonly: true });
-const row = db
+const rows = db
   .prepare(
-    "select count(*) as total from provider_connections where provider in ('chatgpt-web2api','perplexity-web2api','gemini-web2api','claude') and is_active = 1"
+    "select provider, count(*) as total, sum(case when is_active = 1 then 1 else 0 end) as active from provider_connections where provider in ('chatgpt-web2api','perplexity-web2api') group by provider order by provider"
   )
-  .get();
-process.stdout.write(String(row?.total ?? 0));
+  .all();
+process.stdout.write(JSON.stringify(rows));
 NODE
   )"
-  if [[ "${configured_provider_count:-0}" -lt 1 ]]; then
-    echo "FAIL: OmniRoute has no configured ChatGPT/Perplexity/Gemini/Claude provider connections" >&2
+  configured_provider_count="$(count_active_direct_providers "$provider_summary")"
+  has_direct_provider="$(has_required_direct_provider "$provider_summary")"
+  if [[ "$has_direct_provider" != "yes" ]]; then
+    echo "FAIL: OmniRoute has no active chatgpt-web2api or perplexity-web2api provider connection" >&2
     exit 1
   fi
-  echo "OK: OmniRoute has $configured_provider_count configured central provider connection(s)"
+  echo "OK: OmniRoute has $configured_provider_count active direct provider connection(s)"
 
   echo "[3/5] Verify OpenWebUI runtime points to OmniRoute"
   if [[ -n "$REDIS_PASSWORD" ]]; then
@@ -382,7 +403,7 @@ NODE
     echo "Trying model: $smoke_model"
     chat_payload="$(node -e 'process.stdout.write(JSON.stringify({model: process.argv[1], messages: [{role: "user", content: "What is 1+1? Answer with 2 only."}]}));' "$smoke_model")"
     if ! chat_response="$(
-      curl_host "$OMNIROUTE_API_HOST" "/v1/chat/completions" \
+      curl_host "$OMNIROUTE_HOST" "/v1/chat/completions" \
         -H "Authorization: Bearer ${OPENWEBUI_OPENAI_API_KEY}" \
         -H "Content-Type: application/json" \
         -d "$chat_payload"

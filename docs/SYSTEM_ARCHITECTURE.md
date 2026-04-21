@@ -205,7 +205,7 @@ flowchart LR
 - `src/domain/` + `src/lib/db/` + `src/lib/usage/`: policy, state, usage, persistence
 - `src/lib/oauth/`: quản lý OAuth/provider credentials
 - `src/lib/skills/`, `src/lib/memory/`, `src/lib/acp/`, `src/lib/a2a/`: capability mở rộng
-- `src/mitm/`: TLS/proxy/MITM tooling, không phải đường chat chính của stack 2-layer hiện tại
+- `src/mitm/`: legacy TLS/proxy/MITM tooling. LocalAgent direct routing disables the Antigravity MITM API surface; Antigravity should call OmniRoute through Traefik on `router.localagent.local:8443`.
 
 ## 6. Luồng request chuẩn của hệ thống
 

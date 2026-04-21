@@ -26,8 +26,7 @@ test_prefers_available_models_in_priority_order() {
   done < <(resolve_smoke_models "$payload")
 
   assert_eq "chatgpt-web2api/gpt-5.1" "${models[0]:-}" "preferred models should come first"
-  assert_eq "gemini-web2api/gemini-2.5-pro" "${models[1]:-}" "remaining preferred models should follow"
-  assert_eq "claude/claude-sonnet-4-6" "${models[2]:-}" "other available preferred providers should be retained"
+  assert_eq "1" "${#models[@]}" "non-direct providers should not be retained"
 }
 
 test_falls_back_to_supported_provider_models_when_preferred_ids_missing() {
@@ -39,9 +38,37 @@ test_falls_back_to_supported_provider_models_when_preferred_ids_missing() {
     fi
   done < <(resolve_smoke_models "$payload")
 
-  assert_eq "gemini-web2api/gemini-2.5-flash-lite" "${models[0]:-}" "supported provider models should be selected"
-  assert_eq "claude/claude-3-7-sonnet" "${models[1]:-}" "multiple supported provider models should be preserved"
-  assert_eq "2" "${#models[@]}" "unsupported local models should be excluded from central smoke candidates"
+  assert_eq "0" "${#models[@]}" "non-direct provider models should be excluded from direct-routing smoke candidates"
+}
+
+test_accepts_chatgpt_and_perplexity_smoke_candidates() {
+  local payload='{"data":[{"id":"gemini-web2api/gemini-2.5-pro"},{"id":"chatgpt-web2api/gpt-5.1"},{"id":"perplexity-web2api/sonar"},{"id":"claude/claude-sonnet-4-6"}]}'
+  local models=()
+  while IFS= read -r model || [[ -n "$model" ]]; do
+    if [[ -n "$model" ]]; then
+      models+=("$model")
+    fi
+  done < <(resolve_smoke_models "$payload")
+
+  assert_eq "chatgpt-web2api/gpt-5.1" "${models[0]:-}" "chatgpt-web2api should be the first direct-routing candidate"
+  assert_eq "perplexity-web2api/sonar" "${models[1]:-}" "perplexity-web2api should be retained as fallback"
+  assert_eq "2" "${#models[@]}" "indirect/OAuth-only providers should not be direct-routing smoke candidates"
+}
+
+test_detects_required_direct_provider_from_provider_summary() {
+  local summary='[{"provider":"gemini-web2api","active":1},{"provider":"chatgpt-web2api","active":1}]'
+  local has_provider
+  has_provider="$(has_required_direct_provider "$summary")"
+
+  assert_eq "yes" "$has_provider" "chatgpt-web2api or perplexity-web2api should satisfy direct provider readiness"
+}
+
+test_rejects_provider_summary_without_required_direct_provider() {
+  local summary='[{"provider":"gemini-web2api","active":1},{"provider":"claude","active":1}]'
+  local has_provider
+  has_provider="$(has_required_direct_provider "$summary")"
+
+  assert_eq "no" "$has_provider" "OAuth-only providers should not satisfy direct provider readiness"
 }
 
 test_classifies_retryable_rate_limit_errors() {
@@ -79,6 +106,9 @@ test_classifies_unexpected_chat_content_as_failure() {
 main() {
   test_prefers_available_models_in_priority_order
   test_falls_back_to_supported_provider_models_when_preferred_ids_missing
+  test_accepts_chatgpt_and_perplexity_smoke_candidates
+  test_detects_required_direct_provider_from_provider_summary
+  test_rejects_provider_summary_without_required_direct_provider
   test_classifies_retryable_rate_limit_errors
   test_classifies_successful_chat_responses
   test_classifies_successful_sse_chat_responses
