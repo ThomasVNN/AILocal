@@ -772,6 +772,8 @@ export async function refreshChatgptWebSession(
       (validation.errorCode === "session_missing_user" ||
         validation.errorCode === "missing_access_token" ||
         validation.errorCode === "cookie_header_too_large" ||
+        validation.errorCode === "session_expired" ||
+        validation.errorCode === "session_forbidden" ||
         validation.statusCode === 431) &&
       typeof currentAccessToken === "string" &&
       currentAccessToken.trim().length > 0;

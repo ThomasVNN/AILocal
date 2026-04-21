@@ -861,7 +861,9 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
                   if (
                     cookieResult.errorCode !== "session_missing_user" &&
                     cookieResult.errorCode !== "missing_access_token" &&
-                    cookieResult.errorCode !== "cookie_header_too_large"
+                    cookieResult.errorCode !== "cookie_header_too_large" &&
+                    cookieResult.errorCode !== "session_expired" &&
+                    cookieResult.errorCode !== "session_forbidden"
                   ) {
                     return cookieResult;
                   }
