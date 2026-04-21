@@ -87,6 +87,12 @@ def host_rule(h: str) -> str:
     return "Host(`invalid.localhost`)"
   return f"Host(`{h}`)"
 
+def openai_compatible_rule(h: str) -> str:
+  return (
+    f"{host_rule(h)} && (PathPrefix(`/v1`) || PathPrefix(`/models`) || "
+    "PathPrefix(`/chat/completions`) || PathPrefix(`/responses`) || PathPrefix(`/codex`))"
+  )
+
 def redirect_middleware_block() -> str:
   if not tls_enabled:
     return ""
@@ -132,6 +138,39 @@ def router_block(name: str, host: str, service: str) -> str:
       service: {service}
 """
 
+def direct_api_router_block(name: str, host: str, service: str) -> str:
+  rule = openai_compatible_rule(host)
+  if tls_enabled:
+    return f"""    {name}-http:
+      rule: "{rule}"
+      entryPoints:
+        - web
+      priority: 200
+      middlewares:
+        - redirect-to-https
+      service: {service}
+    {name}:
+      rule: "{rule}"
+      entryPoints:
+        - websecure
+      priority: 200
+      tls: {{}}
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: {service}
+"""
+  return f"""    {name}:
+      rule: "{rule}"
+      entryPoints:
+        - web
+      priority: 200
+      middlewares:
+        - secure-headers
+        - default-ratelimit
+      service: {service}
+"""
+
 hsts_block = ""
 hsts_lines = ""
 if hsts_seconds > 0:
@@ -169,7 +208,7 @@ content = f"""http:
         frameDeny: true
         referrerPolicy: no-referrer
 {redirect_middleware_block()}  routers:
-{router_block("traefik", traefik_host, "api@internal")}{router_block("omniroute-dashboard", router_host, "omniroute-dashboard")}{router_block("omniroute-api", api_host, "omniroute-api")}{router_block("openwebui", chat_host, "openwebui")}{router_block("openclaw", openclaw_host, "openclaw")}{router_block("minio-api", s3_host, "minio-api")}{router_block("minio-console", minio_host, "minio-console")}  services:
+{router_block("traefik", traefik_host, "api@internal")}{direct_api_router_block("omniroute-direct-api", router_host, "omniroute-api")}{router_block("omniroute-dashboard", router_host, "omniroute-dashboard")}{router_block("omniroute-api", api_host, "omniroute-api")}{router_block("openwebui", chat_host, "openwebui")}{router_block("openclaw", openclaw_host, "openclaw")}{router_block("minio-api", s3_host, "minio-api")}{router_block("minio-console", minio_host, "minio-console")}  services:
     omniroute-dashboard:
       loadBalancer:
         servers:

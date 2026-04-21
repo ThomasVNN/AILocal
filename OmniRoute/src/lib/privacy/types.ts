@@ -2,7 +2,7 @@ export type PrivacyLevel = "L1" | "L2" | "L3" | "L4";
 
 export type PrivacyTransformMode = "BLOCK" | "MASK" | "TOKENIZE" | "ALLOW";
 
-export type PrivacyRuleType = "regex" | "pattern" | "dictionary";
+export type PrivacyRuleType = "regex" | "pattern" | "dictionary" | "ner";
 
 export interface PrivacyEntityType {
   id: string;

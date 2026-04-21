@@ -17,7 +17,14 @@ test("discoverChatgptWebModels parses codex models endpoint response", async () 
     new Response(
       JSON.stringify({
         models: [
-          { model_slug: "gpt-5.2-codex", display_name: "GPT-5.2 Codex" },
+          {
+            model_slug: "gpt-5.2-codex",
+            display_name: "GPT-5.2 Codex",
+            context_window: 272000,
+            max_context_window: 272000,
+            truncation_policy: { mode: "bytes", limit: 10000 },
+            available_in_plans: ["plus", "pro", "team"],
+          },
           { model_slug: "gpt-5", display_name: "GPT-5" },
         ],
       }),
@@ -41,6 +48,11 @@ test("discoverChatgptWebModels parses codex models endpoint response", async () 
     result.models.map((model) => model.id),
     ["gpt-5.2-codex", "gpt-5"]
   );
+  assert.equal(result.models[0].contextLength, 272000);
+  assert.equal(result.models[0].inputTokenLimit, 272000);
+  assert.equal(result.models[0].maxContextLength, 272000);
+  assert.equal(result.models[0].truncationByteLimit, 10000);
+  assert.deepEqual(result.models[0].availableInPlans, ["plus", "pro", "team"]);
 });
 
 test("discoverChatgptWebModels falls back when endpoint fails", async () => {

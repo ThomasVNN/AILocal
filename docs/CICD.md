@@ -27,6 +27,13 @@ Thêm vào `/etc/hosts` trên Mac:
 127.0.0.1  router.localagent.local api.localagent.local chat.localagent.local openclaw.localagent.local s3.localagent.local minio.localagent.local traefik.localagent.local
 ```
 
+macOS helper:
+```bash
+sudo sh -c 'printf "\n# LocalAgent local dev\n127.0.0.1 router.localagent.local api.localagent.local chat.localagent.local openclaw.localagent.local s3.localagent.local minio.localagent.local traefik.localagent.local\n" >> /etc/hosts'
+sudo dscacheutil -flushcache
+sudo killall -HUP mDNSResponder || true
+```
+
 Lưu ý: local macOS mặc định dùng `TRAEFIK_HTTPS_PORT=8443` để tránh xung đột với Tailscale trên port `443`.
 
 ### Server (Linux)
@@ -232,6 +239,10 @@ Traefik được set network aliases trên `edge` theo các host `${OMNIROUTE_HO
 ### 6.3 HTTPS / CA trust
 - Browser sẽ truy cập qua `https://*.localagent.server`, và local là `https://*.localagent.local:8443`.
 - Nếu browser báo cert warning, import/trust CA tại `${LA_DATA_ROOT}/platform/proxy/traefik/ca/ca.crt` trên máy client.
+- Local macOS có thể trust CA vào login keychain:
+  ```bash
+  security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "${PWD}/.localagent-data/platform/proxy/traefik/ca/ca.crt"
+  ```
 - OpenClaw Control UI chỉ hoạt động ổn định khi origin là HTTPS hoặc localhost secure-context; đây là lý do rollout này thêm TLS ở Traefik.
 
 ### 6.4 Warm-up / 502 lúc mới up

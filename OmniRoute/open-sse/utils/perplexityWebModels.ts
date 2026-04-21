@@ -5,6 +5,11 @@ type JsonRecord = Record<string, unknown>;
 export type PerplexityDiscoveredModel = {
   id: string;
   name: string;
+  description?: string;
+  mode?: string;
+  provider?: string;
+  subscriptionTier?: string;
+  isDefault?: boolean;
 };
 
 export type PerplexityModelDiscoveryResult = {
@@ -17,15 +22,26 @@ export type PerplexityModelDiscoveryResult = {
 const DISCOVERY_ENDPOINTS = [
   {
     source: "web_catalog" as const,
-    url: "https://www.perplexity.ai/rest/models/config",
+    url: "https://www.perplexity.ai/rest/models/config?config_schema=v1&version=2.18&source=default",
+    headers: {
+      "x-app-apiclient": "default",
+      "x-app-apiversion": "2.18",
+      "x-perplexity-request-try-number": "1",
+      "x-perplexity-request-endpoint":
+        "https://www.perplexity.ai/rest/models/config?config_schema=v1&version=2.18&source=default",
+      "x-perplexity-request-reason": "use-preferred-search-models",
+      Accept: "*/*",
+    },
   },
   {
     source: "web_catalog" as const,
     url: "https://www.perplexity.ai/rest/models",
+    headers: {},
   },
   {
     source: "web_settings" as const,
     url: "https://www.perplexity.ai/rest/user/settings",
+    headers: {},
   },
 ];
 
@@ -40,9 +56,7 @@ function toStr(value: unknown): string | null {
 function isLikelyModelId(value: string): boolean {
   if (!value) return false;
   const id = value.trim();
-  if (!id || id.length > 80) return false;
-  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return false;
-  if (/^\d+$/.test(id)) return false;
+  if (!isSafeModelId(id)) return false;
 
   // Keep "default" because it's a valid Perplexity web model preference.
   if (id.toLowerCase() === "default") return true;
@@ -58,20 +72,52 @@ function isLikelyModelId(value: string): boolean {
   return id.includes("-");
 }
 
+function isSafeModelId(id: string): boolean {
+  if (!id || id.length > 80) return false;
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return false;
+  if (/^\d+$/.test(id)) return false;
+  return true;
+}
+
 function titleCaseModelId(id: string): string {
   return id.replace(/[-_]+/g, " ").replace(/\b\w/g, (s) => s.toUpperCase());
 }
 
-function addCandidate(map: Map<string, string>, idLike: unknown, nameLike?: unknown) {
+function addCandidate(
+  map: Map<string, PerplexityDiscoveredModel>,
+  idLike: unknown,
+  nameLike?: unknown,
+  metaLike?: unknown,
+  trustedId = false
+) {
   const id = toStr(idLike);
   if (!id) return;
-  if (!isLikelyModelId(id)) return;
+  if (trustedId ? !isSafeModelId(id) : !isLikelyModelId(id)) return;
 
   const name = toStr(nameLike) || titleCaseModelId(id);
-  if (!map.has(id)) map.set(id, name);
+  const meta = asRecord(metaLike);
+  const model: PerplexityDiscoveredModel = {
+    id,
+    name,
+  };
+  const description = toStr(meta.description);
+  const mode = toStr(meta.mode);
+  const provider = toStr(meta.provider);
+  const subscriptionTier = toStr(meta.subscription_tier ?? meta.subscriptionTier);
+  if (description) model.description = description;
+  if (mode) model.mode = mode;
+  if (provider) model.provider = provider;
+  if (subscriptionTier) model.subscriptionTier = subscriptionTier;
+
+  const existing = map.get(id);
+  if (existing) {
+    map.set(id, { ...model, ...existing });
+  } else {
+    map.set(id, model);
+  }
 }
 
-function collectFromArray(map: Map<string, string>, arr: unknown[]) {
+function collectFromArray(map: Map<string, PerplexityDiscoveredModel>, arr: unknown[]) {
   for (const item of arr) {
     if (typeof item === "string") {
       addCandidate(map, item, item);
@@ -82,14 +128,29 @@ function collectFromArray(map: Map<string, string>, arr: unknown[]) {
     addCandidate(
       map,
       rec.id ?? rec.model ?? rec.slug ?? rec.model_id ?? rec.modelId ?? rec.value ?? rec.name,
-      rec.display_name ?? rec.displayName ?? rec.label ?? rec.title ?? rec.name
+      rec.display_name ?? rec.displayName ?? rec.label ?? rec.title ?? rec.name,
+      rec
+    );
+  }
+}
+
+function collectFromModelMap(map: Map<string, PerplexityDiscoveredModel>, value: unknown) {
+  const rec = asRecord(value);
+  for (const [key, nested] of Object.entries(rec)) {
+    const meta = asRecord(nested);
+    addCandidate(
+      map,
+      meta.id ?? meta.model ?? meta.slug ?? meta.model_id ?? meta.modelId ?? meta.value ?? key,
+      meta.display_name ?? meta.displayName ?? meta.label ?? meta.title ?? meta.name ?? key,
+      meta,
+      true
     );
   }
 }
 
 function parseModelsFromPayload(payload: unknown): PerplexityDiscoveredModel[] {
   const root = asRecord(payload);
-  const out = new Map<string, string>();
+  const out = new Map<string, PerplexityDiscoveredModel>();
 
   const candidates = [
     root.models,
@@ -106,6 +167,7 @@ function parseModelsFromPayload(payload: unknown): PerplexityDiscoveredModel[] {
     if (Array.isArray(candidate)) collectFromArray(out, candidate);
     else if (candidate && typeof candidate === "object") {
       const rec = asRecord(candidate);
+      if (candidate === root.models) collectFromModelMap(out, rec);
       for (const value of Object.values(rec)) {
         if (Array.isArray(value)) collectFromArray(out, value);
       }
@@ -132,7 +194,8 @@ function parseModelsFromPayload(payload: unknown): PerplexityDiscoveredModel[] {
     addCandidate(
       out,
       rec.id ?? rec.model ?? rec.slug ?? rec.model_id ?? rec.modelId ?? rec.value ?? rec.name,
-      rec.display_name ?? rec.displayName ?? rec.label ?? rec.title ?? rec.name
+      rec.display_name ?? rec.displayName ?? rec.label ?? rec.title ?? rec.name,
+      rec
     );
 
     for (const [key, nested] of Object.entries(rec)) {
@@ -145,9 +208,13 @@ function parseModelsFromPayload(payload: unknown): PerplexityDiscoveredModel[] {
 
   visit(root);
 
-  return Array.from(out.entries())
-    .map(([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const defaultModels = asRecord(root.default_models ?? root.defaultModels);
+  for (const modelId of Object.values(defaultModels)) {
+    const model = out.get(String(modelId));
+    if (model) model.isDefault = true;
+  }
+
+  return Array.from(out.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function looksLikeCloudflareChallenge(body: string): boolean {
@@ -277,6 +344,7 @@ export async function discoverPerplexityWebModels(
         method: "GET",
         headers: {
           ...PERPLEXITY_WEB_HEADERS,
+          ...endpoint.headers,
           Cookie: token,
         },
         signal: AbortSignal.timeout(12_000),

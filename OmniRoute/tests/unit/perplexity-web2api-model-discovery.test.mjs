@@ -37,6 +37,64 @@ test("discoverPerplexityWebModels parses model catalog response", async () => {
   );
 });
 
+test("discoverPerplexityWebModels parses v1 model config object response", async () => {
+  const seenRequests = [];
+  const fetchMock = async (url, init = {}) => {
+    seenRequests.push({ url: String(url), headers: init.headers || {} });
+    return new Response(
+      JSON.stringify({
+        config_schema: "v1",
+        models: {
+          pplx_pro: {
+            label: "Best",
+            description: "Automatically selects the best model based on the query",
+            mode: "search",
+            provider: null,
+          },
+          gpt52: {
+            label: "GPT-5.2",
+            description: "OpenAI's latest model",
+            mode: "search",
+            provider: "OPENAI",
+          },
+          claude47opus: {
+            label: "Claude Opus 4.7",
+            description: "Anthropic's most advanced model",
+            mode: "search",
+            provider: "ANTHROPIC",
+          },
+        },
+        default_models: {
+          search: "pplx_pro",
+        },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }
+    );
+  };
+
+  const result = await discoverPerplexityWebModels("cookie=value", fetchMock);
+
+  assert.equal(
+    seenRequests[0].url,
+    "https://www.perplexity.ai/rest/models/config?config_schema=v1&version=2.18&source=default"
+  );
+  assert.equal(seenRequests[0].headers["x-app-apiversion"], "2.18");
+  assert.equal(result.source, "web_catalog");
+  assert.equal(result.confidence, "high");
+  assert.deepEqual(
+    result.models.map((m) => m.id),
+    ["pplx_pro", "claude47opus", "gpt52"]
+  );
+  assert.equal(result.models.find((m) => m.id === "pplx_pro").isDefault, true);
+  assert.equal(result.models.find((m) => m.id === "gpt52").name, "GPT-5.2");
+  assert.equal(result.models.find((m) => m.id === "gpt52").description, "OpenAI's latest model");
+  assert.equal(result.models.find((m) => m.id === "gpt52").mode, "search");
+  assert.equal(result.models.find((m) => m.id === "gpt52").provider, "OPENAI");
+});
+
 test("discoverPerplexityWebModels falls back on cloudflare challenge", async () => {
   const fetchMock = async () =>
     new Response("<html><title>Just a moment...</title></html>", {

@@ -16,7 +16,6 @@ import {
   ClineToolCard,
   KiloToolCard,
   DefaultToolCard,
-  AntigravityToolCard,
   CopilotToolCard,
 } from "./components";
 import { useTranslations } from "next-intl";
@@ -276,16 +275,6 @@ export default function CLIToolsPageClient({ machineId }) {
             cloudEnabled={cloudEnabled}
           />
         );
-      case "antigravity":
-        return (
-          <AntigravityToolCard
-            key={toolId}
-            {...commonProps}
-            activeProviders={getActiveProviders()}
-            hasActiveProviders={hasActiveProviders}
-            cloudEnabled={cloudEnabled}
-          />
-        );
       case "cline":
         return (
           <ClineToolCard
@@ -317,18 +306,6 @@ export default function CLIToolsPageClient({ machineId }) {
           />
         );
       default:
-        // #487: Any tool with configType "mitm" should use the MITM card (Start/Stop controls)
-        if (tool.configType === "mitm") {
-          return (
-            <AntigravityToolCard
-              key={toolId}
-              {...commonProps}
-              activeProviders={getActiveProviders()}
-              hasActiveProviders={hasActiveProviders}
-              cloudEnabled={cloudEnabled}
-            />
-          );
-        }
         return (
           <DefaultToolCard
             key={toolId}

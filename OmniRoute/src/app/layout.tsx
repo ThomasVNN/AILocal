@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getLocale } from "next-intl/server";
 import { RTL_LOCALES } from "@/i18n/config";
 import { getSettings } from "@/lib/db/settings";
+import { APP_CONFIG } from "@/shared/constants/config";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -14,13 +15,13 @@ const inter = Inter({
 
 export async function generateMetadata() {
   const settings = await getSettings();
-  const instanceName = settings?.instanceName || "OmniRoute";
+  const instanceName = settings?.instanceName || APP_CONFIG.name;
   const customFaviconUrl = settings?.customFaviconUrl || settings?.customFaviconBase64;
 
   return {
     title: `${instanceName} — AI Gateway for Multi-Provider LLMs`,
     description:
-      "OmniRoute is an AI gateway for multi-provider LLMs. One endpoint for all your AI providers.",
+      "AIAgentGateway is an AI gateway for multi-provider LLMs. One endpoint for all your AI providers.",
     icons: {
       icon: customFaviconUrl ? "/api/settings/favicon" : "/favicon.svg",
       apple: "/apple-touch-icon.svg",

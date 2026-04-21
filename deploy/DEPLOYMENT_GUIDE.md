@@ -118,6 +118,14 @@ Local:
 127.0.0.1  router.localagent.local api.localagent.local chat.localagent.local openclaw.localagent.local s3.localagent.local minio.localagent.local traefik.localagent.local
 ```
 
+macOS helper:
+
+```bash
+sudo sh -c 'printf "\n# LocalAgent local dev\n127.0.0.1 router.localagent.local api.localagent.local chat.localagent.local openclaw.localagent.local s3.localagent.local minio.localagent.local traefik.localagent.local\n" >> /etc/hosts'
+sudo dscacheutil -flushcache
+sudo killall -HUP mDNSResponder || true
+```
+
 Server:
 
 ```text
@@ -522,6 +530,12 @@ Nếu browser báo warning cert:
 
 - copy `ca.crt` từ server/local runtime về máy client
 - import và trust CA đó
+
+Local macOS helper:
+
+```bash
+security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "${PWD}/.localagent-data/platform/proxy/traefik/ca/ca.crt"
+```
 
 ## 13. Troubleshooting
 

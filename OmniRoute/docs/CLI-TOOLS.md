@@ -42,10 +42,10 @@ Current list (v3.0.0-rc.16):
 | **Cline**        | `cline`       | `cline`      | custom     | npm            |
 | **Kilo Code**    | `kilo`        | `kilocode`   | custom     | npm            |
 | **Continue**     | `continue`    | extension    | guide      | VS Code        |
-| **Antigravity**  | `antigravity` | internal     | mitm       | OmniRoute      |
+| **Antigravity**  | `antigravity` | app          | guide      | desktop app    |
 | **GitHub Copilot**| `copilot`    | extension    | custom     | VS Code        |
 | **OpenCode**     | `opencode`    | `opencode`   | guide      | npm            |
-| **Kiro AI**      | `kiro`        | app/cli      | mitm       | desktop/CLI    |
+| **Kiro AI**      | `kiro`        | app/cli      | guide      | desktop/CLI    |
 
 ### CLI fingerprint sync (Agents + Settings)
 
@@ -250,6 +250,29 @@ kiro-cli login
 # Use kiro-cli alongside OmniRoute for other tools.
 kiro-cli status
 ```
+
+---
+
+### Antigravity (Direct OpenAI-Compatible Provider)
+
+Do not use MITM, host-file interception, or certificate injection for Antigravity.
+Configure Antigravity as an OpenAI-compatible/custom provider:
+
+- Base URL: `https://router.localagent.local:8443`
+- API base if the form requires `/v1`: `https://router.localagent.local:8443/v1`
+- Auth: `Bearer <OmniRoute API key>`
+- Model: select a model from `GET /v1/models`, for example `chatgpt-web2api/gpt-5.2`
+
+Verify from the host:
+
+```bash
+curl -sk \
+  --resolve router.localagent.local:8443:127.0.0.1 \
+  -H "Authorization: Bearer $OMNIROUTE_API_KEY" \
+  https://router.localagent.local:8443/v1/models
+```
+
+See `docs/ANTIGRAVITY_DIRECT_ROUTING.md` for the LocalAgent Docker/TLS checklist.
 
 ---
 
