@@ -15,6 +15,7 @@ import { getCliRuntimeStatus } from "@/shared/services/cliRuntime";
 import { getAccessToken } from "@omniroute/open-sse/services/tokenRefresh.ts";
 import { buildPerplexitySessionProviderData } from "@omniroute/open-sse/utils/perplexitySession.ts";
 import { buildChatgptSessionProviderData } from "@omniroute/open-sse/utils/chatgptSession.ts";
+import { buildClaudeWebSessionProviderData } from "@omniroute/open-sse/utils/claudeWebSession.ts";
 import { buildGeminiWebSessionProviderData } from "@omniroute/open-sse/utils/geminiWebSession.ts";
 import { saveCallLog } from "@/lib/usageDb";
 import { logProxyEvent } from "@/lib/proxyLogger";
@@ -97,6 +98,9 @@ const OAUTH_TEST_CONFIG = {
   "chatgpt-web2api": {
     checkWithProviderValidation: true,
     refreshable: true,
+  },
+  claudew2a: {
+    checkWithProviderValidation: true,
   },
   "gemini-web2api": {
     checkWithProviderValidation: true,
@@ -792,6 +796,41 @@ export async function testSingleConnection(connectionId: string, validationModel
 
     if (validationResult?.accessToken) {
       updateData.accessToken = validationResult.accessToken;
+    }
+
+    if (!result.valid && nextSessionStatus === "reauth_required") {
+      updateData.testStatus = "expired";
+      updateData.lastErrorType = "reauth_required";
+      updateData.lastErrorSource = "oauth";
+      updateData.errorCode = diagnosis.code || result.statusCode || "reauth_required";
+    }
+  }
+
+  if (provider === "claudew2a") {
+    const validatedAt = now;
+    const validationResult = result.validationResult || null;
+    const nextSessionStatus =
+      result.valid || result.refreshed
+        ? "active"
+        : diagnosis.type === "upstream_auth_error" || diagnosis.type === "reauth_required"
+          ? "reauth_required"
+          : "session_stale";
+
+    updateData.providerSpecificData = buildClaudeWebSessionProviderData(
+      (connection.providerSpecificData as Record<string, any>) || {},
+      {
+        sessionStatus: nextSessionStatus,
+        organizationUuid: validationResult?.organizationUuid || null,
+        cookieNames: validationResult?.cookieNames,
+        requestHeaders: validationResult?.requestHeaders,
+        validatedAt,
+        refreshedAt: result.refreshed ? validatedAt : null,
+        error: result.valid ? null : result.error,
+      }
+    );
+
+    if (validationResult?.cookieString) {
+      updateData.accessToken = validationResult.cookieString;
     }
 
     if (!result.valid && nextSessionStatus === "reauth_required") {

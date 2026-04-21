@@ -36,6 +36,7 @@ const FALLBACK_ALIAS_TO_PROVIDER = {
   kmc: "kimi-coding",
   kr: "kiro",
   "gemini-w2a": "gemini-web2api",
+  "claude-w2a": "claudew2a",
   qw: "qwen",
 };
 

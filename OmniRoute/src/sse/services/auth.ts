@@ -305,6 +305,24 @@ function getGeminiWebSessionRank(connection: ProviderConnectionView): number {
   return 2;
 }
 
+function getClaudeWebSessionStatus(connection: ProviderConnectionView): string {
+  if (connection.providerSpecificData?.authMethod !== "web2api") return "";
+  const status = connection.providerSpecificData?.sessionStatus;
+  return typeof status === "string" ? status.trim().toLowerCase() : "";
+}
+
+function isClaudeWebSessionBlocked(connection: ProviderConnectionView): boolean {
+  const status = getClaudeWebSessionStatus(connection);
+  return status === "reauth_required" || status === "session_expired" || status === "expired";
+}
+
+function getClaudeWebSessionRank(connection: ProviderConnectionView): number {
+  const status = getClaudeWebSessionStatus(connection);
+  if (!status || status === "active") return 0;
+  if (status === "session_stale" || status === "stale") return 1;
+  return 2;
+}
+
 export function resolveQuotaLimitPolicy(
   provider: string,
   providerSpecificData: JsonRecord
@@ -512,6 +530,7 @@ export async function getProviderCredentials(
       if (provider === "perplexity-web2api" && isPerplexitySessionBlocked(c)) return false;
       if (provider === "chatgpt-web2api" && isChatgptSessionBlocked(c)) return false;
       if (provider === "gemini-web2api" && isGeminiWebSessionBlocked(c)) return false;
+      if (provider === "claudew2a" && isClaudeWebSessionBlocked(c)) return false;
       if (!allowSuppressedConnections) {
         if (isAccountUnavailable(c.rateLimitedUntil)) return false;
         if (isTerminalConnectionStatus(c)) return false;
@@ -557,6 +576,11 @@ export async function getProviderCredentials(
         log.debug(
           "AUTH",
           `  → ${c.id?.slice(0, 8)} | skipped sessionStatus=${getGeminiWebSessionStatus(c)}`
+        );
+      } else if (provider === "claudew2a" && isClaudeWebSessionBlocked(c)) {
+        log.debug(
+          "AUTH",
+          `  → ${c.id?.slice(0, 8)} | skipped sessionStatus=${getClaudeWebSessionStatus(c)}`
         );
       } else if (codexScopeLimited) {
         const scopeUntil = getCodexScopeRateLimitedUntil(c.providerSpecificData, requestedModel);
@@ -671,6 +695,12 @@ export async function getProviderCredentials(
     } else if (provider === "gemini-web2api") {
       orderedConnections = [...orderedConnections].sort((a, b) => {
         const sessionRank = getGeminiWebSessionRank(a) - getGeminiWebSessionRank(b);
+        if (sessionRank !== 0) return sessionRank;
+        return (a.priority || 999) - (b.priority || 999);
+      });
+    } else if (provider === "claudew2a") {
+      orderedConnections = [...orderedConnections].sort((a, b) => {
+        const sessionRank = getClaudeWebSessionRank(a) - getClaudeWebSessionRank(b);
         if (sessionRank !== 0) return sessionRank;
         return (a.priority || 999) - (b.priority || 999);
       });
@@ -1000,7 +1030,8 @@ export async function markAccountUnavailable(
     if (
       (provider === "perplexity-web2api" ||
         provider === "chatgpt-web2api" ||
-        provider === "gemini-web2api") &&
+        provider === "gemini-web2api" ||
+        provider === "claudew2a") &&
       (status === 401 || status === 403) &&
       conn
     ) {

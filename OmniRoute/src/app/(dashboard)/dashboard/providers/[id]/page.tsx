@@ -21,6 +21,7 @@ import {
   CursorAuthModal,
   PerplexityWeb2ApiAuthModal,
   ChatgptWeb2ApiAuthModal,
+  ClaudeWeb2ApiAuthModal,
   GeminiWeb2ApiAuthModal,
   Toggle,
   Select,
@@ -2631,6 +2632,15 @@ export default function ProviderDetailPage() {
         />
       ) : providerId === "chatgpt-web2api" ? (
         <ChatgptWeb2ApiAuthModal
+          isOpen={showOAuthModal}
+          onSuccess={handleOAuthSuccess}
+          onClose={() => {
+            userDismissed.current = true;
+            setShowOAuthModal(false);
+          }}
+        />
+      ) : providerId === "claudew2a" ? (
+        <ClaudeWeb2ApiAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
           onClose={() => {
