@@ -5,8 +5,6 @@ FROM node:22-alpine AS frontend-build
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
 # install deps (cache tốt)
 COPY package.json package-lock.json ./
 RUN npm ci || npm install --legacy-peer-deps
