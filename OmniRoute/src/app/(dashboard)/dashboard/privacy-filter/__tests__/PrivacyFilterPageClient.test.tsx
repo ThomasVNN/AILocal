@@ -137,23 +137,32 @@ describe("PrivacyFilterPageClient", () => {
     fetchMock.mockClear();
   });
 
-  it("renders telemetry cards and configuration editors", async () => {
+  it("renders telemetry cards and concrete configuration dashboard", async () => {
     render(<PrivacyFilterPageClient />);
 
     expect(await screen.findByRole("heading", { name: "Privacy Filter" })).toBeInTheDocument();
     expect(await screen.findByText("privacy-default-v1")).toBeInTheDocument();
     expect(screen.getByText("Scanned requests")).toBeInTheDocument();
     expect(screen.getByText("14")).toBeInTheDocument();
-    expect(screen.getByLabelText("Rules JSON")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save Rules" })).toBeInTheDocument();
+    expect(screen.getByText("Project Code Rule")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Rule" })).toBeInTheDocument();
+    expect(screen.getByText("Saved in SQLite")).toBeInTheDocument();
   });
 
-  it("publishes section updates through the privacy config API", async () => {
+  it("adds a rule through the privacy dashboard and persists it through the config API", async () => {
     render(<PrivacyFilterPageClient />);
 
-    const rulesEditor = await screen.findByLabelText("Rules JSON");
-    fireEvent.change(rulesEditor, { target: { value: "[]" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Rules" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Rule" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), {
+      target: { value: "New Customer Email Rule" },
+    });
+    fireEvent.change(screen.getByLabelText("Rule ID"), {
+      target: { value: "rule-new-email" },
+    });
+    fireEvent.change(screen.getByLabelText("Regex pattern"), {
+      target: { value: "customer-[0-9]+" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Rule" }));
 
     await waitFor(() => {
       expect(
@@ -167,7 +176,47 @@ describe("PrivacyFilterPageClient", () => {
       ([url, init]) => url === "/api/privacy/config" && init?.method === "PATCH"
     );
 
-    expect(patchCall?.[1]?.body).toBe(JSON.stringify({ rules: [] }));
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      rules: [
+        expect.objectContaining({ id: "rule-project" }),
+        expect.objectContaining({
+          id: "rule-new-email",
+          name: "New Customer Email Rule",
+          patternConfig: { regex: "customer-[0-9]+", flags: "g" },
+        }),
+      ],
+    });
     expect(await screen.findByText("Published rules to bundle privacy-v2")).toBeInTheDocument();
+  });
+
+  it("edits and removes a rule through the privacy dashboard", async () => {
+    render(<PrivacyFilterPageClient />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project Code Rule" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), {
+      target: { value: "Edited Project Rule" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Rule" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/privacy/config" &&
+            init?.method === "PATCH" &&
+            String(init?.body).includes("Edited Project Rule")
+        )
+      ).toBe(true);
+    });
+
+    fetchMock.mockClear();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Project Code Rule" }));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(
+        ([url, init]) => url === "/api/privacy/config" && init?.method === "PATCH"
+      );
+      expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({ rules: [] });
+    });
   });
 });
