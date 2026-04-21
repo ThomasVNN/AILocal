@@ -9,7 +9,7 @@ ENV NODE_ENV=production
 
 # install deps (cache tốt)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev || npm install --omit=dev --legacy-peer-deps
+RUN npm ci || npm install --legacy-peer-deps
 
 # copy source
 COPY . .
