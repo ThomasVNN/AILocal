@@ -70,7 +70,7 @@ function compileDocumentRules(config: PrivacyConfig): PrivacyRule[] {
     );
 }
 
-function compileBundleRecord(record: PrivacyBundleRecord): CompiledPrivacyBundle {
+export function compilePrivacyBundleRecord(record: PrivacyBundleRecord): CompiledPrivacyBundle {
   const config = record.compiledBundle;
   const entityTypesById = new Map<string, PrivacyEntityType>(
     config.entityTypes.map((entityType) => [entityType.id, entityType])
@@ -90,6 +90,22 @@ function compileBundleRecord(record: PrivacyBundleRecord): CompiledPrivacyBundle
   };
 }
 
+export function compilePrivacyConfig(
+  config: PrivacyConfig,
+  version: string,
+  compiledAt = config.updatedAt
+): CompiledPrivacyBundle {
+  return compilePrivacyBundleRecord({
+    version,
+    status: "active",
+    checksum: "draft-preview",
+    compiledAt,
+    compiledBy: "dashboard",
+    changeSummary: "Draft Privacy Filter preview",
+    compiledBundle: config,
+  });
+}
+
 export function invalidatePrivacyBundleCache() {
   cachedBundle = null;
   cachedVersion = null;
@@ -102,7 +118,7 @@ export async function getCompiledPrivacyBundle() {
     return cachedBundle;
   }
 
-  cachedBundle = compileBundleRecord(active);
+  cachedBundle = compilePrivacyBundleRecord(active);
   cachedVersion = active.version;
   return cachedBundle;
 }

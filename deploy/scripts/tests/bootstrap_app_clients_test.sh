@@ -60,9 +60,32 @@ test_bootstrap_does_not_write_literal_openclaw_token() {
     "OpenClaw config should receive the actual gateway token, not a literal shell placeholder"
 }
 
+test_bootstrap_preserves_openwebui_first_admin_signup() {
+  local script
+  local compose
+  script="$(<"$ROOT_DIR/deploy/scripts/bootstrap_app_clients.sh")"
+  compose="$(<"$ROOT_DIR/deploy/layer2-apps/docker-compose.yml")"
+
+  assert_contains \
+    "ENABLE_INITIAL_ADMIN_SIGNUP" \
+    "$compose" \
+    "OpenWebUI compose should allow first admin signup even when signup is otherwise disabled"
+
+  assert_contains \
+    "{ui,enable_signup}" \
+    "$script" \
+    "OpenWebUI DB config should reopen signup when no users exist"
+
+  assert_contains \
+    ":config:ENABLE_SIGNUP\" true" \
+    "$script" \
+    "OpenWebUI Redis config should reopen signup when no users exist"
+}
+
 main() {
   test_bootstrap_avoids_host_node_dependency
   test_bootstrap_does_not_write_literal_openclaw_token
+  test_bootstrap_preserves_openwebui_first_admin_signup
   echo "bootstrap_app_clients_test: ok"
 }
 

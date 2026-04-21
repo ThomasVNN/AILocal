@@ -5,6 +5,13 @@ type JsonRecord = Record<string, unknown>;
 export type ChatgptDiscoveredModel = {
   id: string;
   name: string;
+  contextLength?: number;
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+  maxContextLength?: number;
+  truncationByteLimit?: number;
+  availableInPlans?: string[];
+  description?: string;
 };
 
 export type ChatgptModelDiscoveryResult = {
@@ -23,6 +30,25 @@ function asRecord(value: unknown): JsonRecord {
 
 function toStringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function toPositiveIntegerOrNull(value: unknown): number | null {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim().length > 0
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(numberValue) || numberValue <= 0) return null;
+  return Math.floor(numberValue);
+}
+
+function toStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value
+    .map((item) => toStringOrNull(item))
+    .filter((item): item is string => Boolean(item));
+  return items.length > 0 ? Array.from(new Set(items)) : null;
 }
 
 function titleCaseModelId(id: string): string {
@@ -54,7 +80,41 @@ function parseModelsFromPayload(payload: unknown): ChatgptDiscoveredModel[] {
       toStringOrNull(record.displayName) ||
       toStringOrNull(record.name) ||
       titleCaseModelId(id);
-    if (!out.has(id)) out.set(id, { id, name });
+    const contextLength =
+      toPositiveIntegerOrNull(record.context_window) ||
+      toPositiveIntegerOrNull(record.contextWindow) ||
+      toPositiveIntegerOrNull(record.input_token_limit) ||
+      toPositiveIntegerOrNull(record.inputTokenLimit);
+    const outputTokenLimit =
+      toPositiveIntegerOrNull(record.output_token_limit) ||
+      toPositiveIntegerOrNull(record.outputTokenLimit) ||
+      toPositiveIntegerOrNull(record.max_output_tokens) ||
+      toPositiveIntegerOrNull(record.maxOutputTokens);
+    const maxContextLength =
+      toPositiveIntegerOrNull(record.max_context_window) ||
+      toPositiveIntegerOrNull(record.maxContextWindow) ||
+      contextLength;
+    const truncationPolicy = asRecord(record.truncation_policy || record.truncationPolicy);
+    const truncationByteLimit =
+      toPositiveIntegerOrNull(truncationPolicy.limit) ||
+      toPositiveIntegerOrNull(record.truncation_limit) ||
+      toPositiveIntegerOrNull(record.truncationLimit);
+    const availableInPlans =
+      toStringArray(record.available_in_plans) || toStringArray(record.availableInPlans);
+    const description = toStringOrNull(record.description);
+
+    const model: ChatgptDiscoveredModel = { id, name };
+    if (contextLength) {
+      model.contextLength = contextLength;
+      model.inputTokenLimit = contextLength;
+    }
+    if (outputTokenLimit) model.outputTokenLimit = outputTokenLimit;
+    if (maxContextLength) model.maxContextLength = maxContextLength;
+    if (truncationByteLimit) model.truncationByteLimit = truncationByteLimit;
+    if (availableInPlans) model.availableInPlans = availableInPlans;
+    if (description) model.description = description;
+
+    if (!out.has(id)) out.set(id, model);
   }
 
   return Array.from(out.values());

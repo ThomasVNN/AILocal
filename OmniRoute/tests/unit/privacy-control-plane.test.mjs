@@ -117,3 +117,110 @@ test("privacy control plane saves settings and publishes or rolls back bundles",
   });
   assert.equal(rolledBack.version, "privacy-test-active");
 });
+
+test("privacy control plane exposes effective policy previews for source/profile overrides", async () => {
+  await enableDefaultProfile();
+  const { getPrivacyConfig } = await import("../../src/lib/privacy/store.ts");
+  const { getPrivacyControlPlaneWorkspace, patchPrivacyControlPlane } = await import(
+    "../../src/lib/privacy/controlPlane.ts"
+  );
+  const config = await getPrivacyConfig();
+
+  await patchPrivacyControlPlane({
+    profiles: config.profiles.map((profile) =>
+      profile.id === "default-external"
+        ? {
+            ...profile,
+            enabled: true,
+            levelOverrides: { project_code: "L2" },
+            transformOverrides: { project_code: "MASK" },
+          }
+        : profile
+    ),
+  });
+
+  const workspace = await getPrivacyControlPlaneWorkspace();
+  const projectPolicy = workspace.effectivePolicies.find(
+    (policy) =>
+      policy.sourceApp === "openwebui" &&
+      policy.profileId === "default-external" &&
+      policy.entityKey === "project_code"
+  );
+
+  assert.ok(projectPolicy);
+  assert.equal(projectPolicy.level, "L2");
+  assert.equal(projectPolicy.action, "MASK");
+  assert.equal(projectPolicy.levelSource, "profile override");
+  assert.equal(projectPolicy.actionSource, "profile override");
+  assert.ok(projectPolicy.summary.includes("OpenWebUI"));
+  assert.ok(projectPolicy.summary.includes("Project Code"));
+});
+
+test("privacy control plane test runner honors active versus draft bundle selection", async () => {
+  await enableDefaultProfile();
+  const { getPrivacyConfig } = await import("../../src/lib/privacy/store.ts");
+  const {
+    getPrivacyControlPlaneWorkspace,
+    patchPrivacyControlPlane,
+    runPrivacyControlPlaneTest,
+  } = await import("../../src/lib/privacy/controlPlane.ts");
+  const config = await getPrivacyConfig();
+
+  await patchPrivacyControlPlane({
+    entityTypes: [
+      ...config.entityTypes,
+      {
+        id: "draft_secret",
+        name: "Draft Secret",
+        category: "secret",
+        defaultLevel: "L1",
+        defaultTransform: "BLOCK",
+        restoreMode: "never",
+        placeholderPrefix: "DRAFTSECRET",
+        enabled: true,
+      },
+    ],
+    rules: [
+      ...config.rules,
+      {
+        id: "rule-draft-secret",
+        name: "Draft-only secret detector",
+        type: "regex",
+        entityTypeId: "draft_secret",
+        severityLevel: "L1",
+        priority: 120,
+        confidence: 0.99,
+        enabled: true,
+        patternConfig: {
+          regex: "\\bDRAFT-SECRET-[0-9]+\\b",
+          flags: "g",
+        },
+      },
+    ],
+  });
+
+  const workspace = await getPrivacyControlPlaneWorkspace();
+  const draftBundle = workspace.bundles.find((bundle) => bundle.status === "draft");
+  assert.ok(draftBundle);
+
+  const activeResult = await runPrivacyControlPlaneTest({
+    inputMode: "plain-text",
+    rawInput: "Please inspect DRAFT-SECRET-42",
+    sourceApp: "openwebui",
+    profileId: "default-external",
+    bundleVersion: "privacy-test-active",
+  });
+
+  const draftResult = await runPrivacyControlPlaneTest({
+    inputMode: "plain-text",
+    rawInput: "Please inspect DRAFT-SECRET-42",
+    sourceApp: "openwebui",
+    profileId: "default-external",
+    bundleVersion: draftBundle.version,
+  });
+
+  assert.equal(activeResult.decision, "allow");
+  assert.equal(draftResult.decision, "blocked");
+  assert.equal(draftResult.bundleVersion, draftBundle.version);
+  assert.ok(draftResult.detectedEntities.some((entity) => entity.entityKey === "draft_secret"));
+});

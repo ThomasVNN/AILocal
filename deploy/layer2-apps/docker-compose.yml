@@ -92,6 +92,7 @@ services:
         condition: service_healthy
     environment:
       DATA_DIR: /app/backend/data
+      ENABLE_INITIAL_ADMIN_SIGNUP: ${OPENWEBUI_ENABLE_INITIAL_ADMIN_SIGNUP:-True}
       ENABLE_OLLAMA_API: "False"
       ENABLE_OPENAI_API: "True"
       OPENAI_API_BASE_URL: http://omniroute:${OMNIROUTE_API_PORT:-20129}/v1

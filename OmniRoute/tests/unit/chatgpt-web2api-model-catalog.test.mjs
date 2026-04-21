@@ -34,7 +34,12 @@ test("v1 models exposes ChatGPT Web2API under canonical prefix only", async () =
       return new Response(
         JSON.stringify({
           models: [
-            { model_slug: "gpt-5.2-codex", display_name: "GPT-5.2 Codex" },
+            {
+              model_slug: "gpt-5.2-codex",
+              display_name: "GPT-5.2 Codex",
+              context_window: 272000,
+              max_context_window: 272000,
+            },
             { model_slug: "gpt-5", display_name: "GPT-5" },
           ],
         }),
@@ -67,6 +72,10 @@ test("v1 models exposes ChatGPT Web2API under canonical prefix only", async () =
 
     assert.ok(ids.has("chatgpt-web2api/gpt-5"));
     assert.ok(ids.has("chatgpt-web2api/gpt-5.2-codex"));
+    assert.equal(
+      body.data.find((item) => item.id === "chatgpt-web2api/gpt-5.2-codex").context_length,
+      272000
+    );
     assert.equal(ids.has("chatgpt-w2a/gpt-5"), false);
     assert.equal(
       [...ids].some((id) => id.startsWith("chatgpt-w2a/")),

@@ -230,6 +230,7 @@ OpenWebUI stores persistent runtime state in Postgres, Redis, MinIO/S3, and its 
 - Resolves or creates OmniRoute app keys for OpenWebUI and OpenClaw.
 - Ensures OpenWebUI's Postgres config row points to OmniRoute.
 - Ensures Redis config keys under `open-webui:config:*` point to OmniRoute.
+- If OpenWebUI has no users, reopens the first-admin signup gate in both Postgres config and Redis runtime cache.
 - Clears stale OpenWebUI model cache.
 - Restarts OpenWebUI after config correction.
 
@@ -240,6 +241,7 @@ OpenWebUI stores persistent runtime state in Postgres, Redis, MinIO/S3, and its 
 - Do not add direct provider credentials to OpenWebUI as the normal LocalAgent path. Keep provider ownership in OmniRoute.
 - If you change OpenWebUI provider config behavior, update `bootstrap_app_clients.sh` and smoke checks at the same time.
 - If you change DB migrations or persistent config names, check both Postgres config rows and Redis mirror keys.
+- If OpenWebUI shows the first-admin page but `/api/v1/auths/signup` returns `403`, check `ENABLE_INITIAL_ADMIN_SIGNUP`, `Users.has_users`, and Redis keys such as `open-webui:config:ENABLE_SIGNUP`.
 - If you change model listing behavior, verify that `routers/openai.py` still consumes OmniRoute `/models` correctly.
 - Treat OpenWebUI runtime data under the data root as generated state, not source code.
 
@@ -455,6 +457,7 @@ Backups should be discoverable by timestamp and associated with the deploy actio
 ## Common Pitfalls
 
 - Editing OpenWebUI env only and forgetting persisted DB/Redis config.
+- Resetting OpenWebUI Postgres schema without reconciling Redis signup/config keys.
 - Updating OpenClaw provider schema without updating bootstrap merge logic.
 - Assuming `/v1/models` returns public upstream provider shape instead of OmniRoute's unified catalog.
 - Adding provider credentials to OpenWebUI or OpenClaw instead of OmniRoute.

@@ -77,7 +77,12 @@ OMNIROUTE_NETWORK_BASE_URL="http://omniroute:${OMNIROUTE_API_PORT}/v1"
 OPENWEBUI_ENV_VALUE="$(read_env_value OPENWEBUI_OPENAI_API_KEY || true)"
 OPENCLAW_ENV_VALUE="$(read_env_value OPENCLAW_OPENAI_API_KEY || true)"
 REDIS_PASSWORD_VALUE="${REDIS_PASSWORD:-$(read_env_value REDIS_PASSWORD || true)}"
+OPENWEBUI_REDIS_KEY_PREFIX_VALUE="${OPENWEBUI_REDIS_KEY_PREFIX:-$(read_env_value OPENWEBUI_REDIS_KEY_PREFIX || true)}"
 OPENCLAW_GATEWAY_TOKEN_VALUE="${OPENCLAW_GATEWAY_TOKEN:-$(read_env_value OPENCLAW_GATEWAY_TOKEN || true)}"
+
+if [[ -z "$OPENWEBUI_REDIS_KEY_PREFIX_VALUE" ]]; then
+  OPENWEBUI_REDIS_KEY_PREFIX_VALUE="open-webui"
+fi
 
 echo "Reconciling OmniRoute app API keys..."
 
@@ -172,7 +177,23 @@ SET data = jsonb_set(
             true
           )::json,
     updated_at = NOW();
+
+UPDATE config
+SET data = jsonb_set(
+            jsonb_set(COALESCE(data, '{}'::json)::jsonb, '{ui,enable_signup}', 'true'::jsonb, true),
+            '{ui,ENABLE_LOGIN_FORM}',
+            'true'::jsonb,
+            true
+          )::json,
+    updated_at = NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "user");
 SQL
+
+OPENWEBUI_HAS_USERS="$(
+  bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T postgres-primary \
+    psql -U localagent -d openwebui -tAc 'SELECT EXISTS (SELECT 1 FROM "user");' |
+    tr -d '[:space:]'
+)"
 
 if [[ -n "$REDIS_PASSWORD_VALUE" ]]; then
   echo "Syncing OpenWebUI Redis config..."
@@ -182,19 +203,28 @@ if [[ -n "$REDIS_PASSWORD_VALUE" ]]; then
 
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
     redis-cli -a "$REDIS_PASSWORD_VALUE" \
-    SET open-webui:config:ENABLE_OPENAI_API true >/dev/null
+    SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:ENABLE_OPENAI_API" true >/dev/null
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
     redis-cli -a "$REDIS_PASSWORD_VALUE" \
-    SET open-webui:config:OPENAI_API_BASE_URLS "$OPENWEBUI_BASE_URLS_JSON" >/dev/null
+    SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:OPENAI_API_BASE_URLS" "$OPENWEBUI_BASE_URLS_JSON" >/dev/null
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
     redis-cli -a "$REDIS_PASSWORD_VALUE" \
-    SET open-webui:config:OPENAI_API_KEYS "$OPENWEBUI_KEYS_JSON" >/dev/null
+    SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:OPENAI_API_KEYS" "$OPENWEBUI_KEYS_JSON" >/dev/null
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
     redis-cli -a "$REDIS_PASSWORD_VALUE" \
-    SET open-webui:config:OPENAI_API_CONFIGS "$OPENWEBUI_CONFIGS_JSON" >/dev/null
+    SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:OPENAI_API_CONFIGS" "$OPENWEBUI_CONFIGS_JSON" >/dev/null
+  if [[ "$OPENWEBUI_HAS_USERS" != "t" ]]; then
+    echo "OpenWebUI has no users; enabling first-admin signup gate..."
+    bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
+      redis-cli -a "$REDIS_PASSWORD_VALUE" \
+      SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:ENABLE_SIGNUP" true >/dev/null
+    bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
+      redis-cli -a "$REDIS_PASSWORD_VALUE" \
+      SET "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:config:ENABLE_LOGIN_FORM" true >/dev/null
+  fi
   bash "$DEPLOY_DIR/scripts/stack.sh" platform exec -T redis \
     redis-cli -a "$REDIS_PASSWORD_VALUE" \
-    DEL open-webui:models >/dev/null
+    DEL "${OPENWEBUI_REDIS_KEY_PREFIX_VALUE}:models" >/dev/null
 else
   echo "WARN: REDIS_PASSWORD is empty; skipping OpenWebUI Redis config sync." >&2
 fi

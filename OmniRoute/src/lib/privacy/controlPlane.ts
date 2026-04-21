@@ -5,7 +5,12 @@ import {
   resolvePrivacyProfile,
   type DetectedPrivacyEntity,
 } from "./detectors";
-import { getCompiledPrivacyBundle, invalidatePrivacyBundleCache } from "./bundle";
+import {
+  compilePrivacyBundleRecord,
+  compilePrivacyConfig,
+  getCompiledPrivacyBundle,
+  invalidatePrivacyBundleCache,
+} from "./bundle";
 import {
   activatePrivacyBundle,
   getActivePrivacyBundle,
@@ -310,6 +315,7 @@ export async function getPrivacyControlPlaneWorkspace(): Promise<PrivacyControlP
   const sourceApps = mergeSourceApps(Object.keys(stats.sourceApps || {}));
   const latestIncidents = incidents.filter((incident) => incident.finalDecision !== "allow").slice(0, 5);
   const bundleSummaries = buildBundleSummaries(bundles, activeBundle.version, config, activeConfig);
+  const effectivePolicies = buildEffectivePolicyPreviews(config, sourceApps);
 
   return {
     overview: {
@@ -348,6 +354,7 @@ export async function getPrivacyControlPlaneWorkspace(): Promise<PrivacyControlP
     },
     config,
     sourceApps,
+    effectivePolicies,
     incidents,
     bundles: bundleSummaries,
     settings,
@@ -390,6 +397,82 @@ function buildPolicyWarnings(config: PrivacyConfig) {
   }
 
   return warnings;
+}
+
+function scopeIncludes(values: string[] | undefined, value: string) {
+  return !values || values.length === 0 || values.includes(value);
+}
+
+function ruleAppliesTo(rule: PrivacyRule, sourceApp: string, profileId: string) {
+  return (
+    scopeIncludes(rule.scope?.sourceApps, sourceApp) &&
+    scopeIncludes(rule.scope?.profileIds, profileId)
+  );
+}
+
+function buildEffectivePolicyPreviews(config: PrivacyConfig, sourceApps: PrivacySourceApp[]) {
+  const previews: PrivacyControlPlaneWorkspace["effectivePolicies"] = [];
+  const enabledProfiles = config.profiles.filter((profile) => profile.enabled);
+
+  for (const source of sourceApps.filter((candidate) => candidate.active)) {
+    const matchingProfiles = enabledProfiles.filter((profile) =>
+      scopeIncludes(profile.appliesTo.sourceApps, source.key)
+    );
+
+    for (const profile of matchingProfiles) {
+      for (const entity of config.entityTypes.filter((candidate) => candidate.enabled)) {
+        const level = profile.levelOverrides[entity.id] || entity.defaultLevel;
+        const action = profile.transformOverrides[entity.id] || entity.defaultTransform;
+        const ruleIds = config.rules
+          .filter(
+            (rule) =>
+              rule.enabled &&
+              rule.entityTypeId === entity.id &&
+              ruleAppliesTo(rule, source.key, profile.id)
+          )
+          .map((rule) => rule.id);
+        const dictionarySetIds = config.documentSets
+          .filter(
+            (set) =>
+              set.status !== "archived" &&
+              set.entries.some((entry) => entry.entityTypeId === entity.id)
+          )
+          .map((set) => set.id);
+        const warnings: string[] = [];
+
+        if (level === "L1" && action !== "BLOCK") {
+          warnings.push("L1 entity is not configured to block for this scope.");
+        }
+
+        if (ruleIds.length === 0 && dictionarySetIds.length === 0) {
+          warnings.push("No enabled rule or dictionary set currently detects this entity.");
+        }
+
+        previews.push({
+          sourceApp: source.key,
+          sourceName: source.name,
+          profileId: profile.id,
+          profileName: profile.name,
+          entityKey: entity.id,
+          entityLabel: entity.name,
+          level,
+          action,
+          levelSource: profile.levelOverrides[entity.id] ? "profile override" : "entity default",
+          actionSource: profile.transformOverrides[entity.id]
+            ? "profile override"
+            : "entity default",
+          restoreMode: entity.restoreMode,
+          placeholderPrefix: entity.placeholderPrefix,
+          ruleIds,
+          dictionarySetIds,
+          warnings,
+          summary: `${source.name} via ${profile.name} applies ${level} / ${action} to ${entity.name}.`,
+        });
+      }
+    }
+  }
+
+  return previews;
 }
 
 export async function patchPrivacyControlPlane(
@@ -466,6 +549,25 @@ function parseTestInput(input: PrivacyTestInput) {
     rawText: input.rawInput || "",
     rawDisplay: input.rawInput || "",
   };
+}
+
+async function getCompiledBundleForTest(bundleVersion?: string) {
+  const activeBundle = await getActivePrivacyBundle();
+  if (!bundleVersion || bundleVersion === activeBundle.version) {
+    return getCompiledPrivacyBundle();
+  }
+
+  const savedBundle = await getPrivacyBundle(bundleVersion);
+  if (savedBundle) {
+    return compilePrivacyBundleRecord(savedBundle);
+  }
+
+  if (bundleVersion.startsWith("privacy-draft-")) {
+    const draftConfig = await getPrivacyConfig();
+    return compilePrivacyConfig(draftConfig, bundleVersion, draftConfig.updatedAt);
+  }
+
+  return getCompiledPrivacyBundle();
 }
 
 function actionForDetection(detection: DetectedPrivacyEntity) {
@@ -599,7 +701,7 @@ function summarizePipeline(input: {
 
 export async function runPrivacyControlPlaneTest(input: PrivacyTestInput): Promise<PrivacyTestResult> {
   const settings = await getPrivacyControlPlaneSettings();
-  const bundle = await getCompiledPrivacyBundle();
+  const bundle = await getCompiledBundleForTest(input.bundleVersion);
   const profile =
     (input.profileId && bundle.profiles.find((candidate) => candidate.id === input.profileId)) ||
     resolvePrivacyProfile(bundle, input.sourceApp);

@@ -8,6 +8,7 @@ import Modal from "@/shared/components/Modal";
 import { cn } from "@/shared/utils/cn";
 import type {
   PrivacyControlPlaneWorkspace,
+  PrivacyControlPlanePatch,
   PrivacyFilterView,
   PrivacyIncident,
   PrivacySettings,
@@ -22,11 +23,21 @@ import type {
   PrivacyRuleType,
   PrivacyTransformMode,
 } from "@/lib/privacy/types";
+import { privacyFilterService } from "./privacyFilterService";
 
 type RuleEditorState = PrivacyRule & {
   transformMode: PrivacyTransformMode;
   placeholderPrefix: string;
   restoreMode: PrivacyEntityType["restoreMode"];
+};
+
+type IncidentFiltersState = {
+  query: string;
+  sourceApp: string;
+  level: string;
+  action: string;
+  bundleVersion: string;
+  status: string;
 };
 
 const VIEWS: Array<{ value: PrivacyFilterView; label: string; icon: string }> = [
@@ -64,16 +75,6 @@ function formatTime(value?: string) {
   if (!value) return "n/a";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
-
-function formatError(error: unknown) {
-  if (!error) return "Request failed";
-  if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Request failed";
-  }
 }
 
 function createId(label: string, prefix: string) {
@@ -403,6 +404,7 @@ function PolicyStudioView({
   createEntity,
   archiveEntity,
   addDictionarySet,
+  testRule,
   setView,
 }: {
   workspace: PrivacyControlPlaneWorkspace;
@@ -416,6 +418,7 @@ function PolicyStudioView({
   createEntity: () => void;
   archiveEntity: (entity: PrivacyEntityType) => void;
   addDictionarySet: () => void;
+  testRule: () => void;
   setView: (view: PrivacyFilterView) => void;
 }) {
   const config = workspace.config;
@@ -423,6 +426,18 @@ function PolicyStudioView({
     `${entity.name} ${entity.id} ${entity.category}`.toLowerCase().includes(entitySearch.toLowerCase())
   );
   const selectedEntity = editor ? getEntity(config, editor.entityTypeId) : null;
+  const selectedEffectivePolicies =
+    editor && selectedEntity
+      ? (workspace.effectivePolicies || []).filter(
+          (policy) => policy.entityKey === selectedEntity.id
+        )
+      : [];
+  const impactedSourceApps = [
+    ...new Set(selectedEffectivePolicies.map((policy) => policy.sourceName)),
+  ];
+  const policyWarnings = [
+    ...new Set(selectedEffectivePolicies.flatMap((policy) => policy.warnings)),
+  ];
 
   return (
     <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
@@ -710,7 +725,7 @@ function PolicyStudioView({
               </label>
             </div>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" icon="science" onClick={() => setView("test")}>
+              <Button variant="secondary" icon="science" onClick={testRule}>
                 Test this rule
               </Button>
               <Button variant="secondary" icon="account_tree">
@@ -752,7 +767,46 @@ function PolicyStudioView({
               </p>
             </div>
             <div>
-              <p className="mb-2 text-sm font-semibold text-text-main">Scoped overrides</p>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-text-main">Effective scoped behavior</p>
+                {impactedSourceApps.length > 0 && (
+                  <Badge variant="primary" size="sm">
+                    {impactedSourceApps.length} source app{impactedSourceApps.length === 1 ? "" : "s"}
+                  </Badge>
+                )}
+              </div>
+              <div className="space-y-2">
+                {selectedEffectivePolicies.length > 0 ? (
+                  selectedEffectivePolicies.slice(0, 5).map((policy) => (
+                    <div key={`${policy.sourceApp}-${policy.profileId}-${policy.entityKey}`} className="rounded-lg bg-bg px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-text-main">{policy.sourceName}</span>
+                      <ActionBadge action={policy.action} />
+                    </div>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {policy.summary} Level from {policy.levelSource}; action from{" "}
+                      {policy.actionSource}.
+                    </p>
+                  </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg bg-bg px-3 py-2 text-sm text-text-muted">
+                    No enabled profile currently applies this entity to an active source app.
+                  </div>
+                )}
+              </div>
+              {policyWarnings.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {policyWarnings.map((warning) => (
+                    <div key={warning} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300">
+                      {warning}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold text-text-main">Profiles and overrides</p>
               <div className="space-y-2">
                 {workspace.config.profiles.map((profile) => (
                   <div key={profile.id} className="rounded-lg bg-bg px-3 py-2">
@@ -993,47 +1047,107 @@ function TestLabView({
 
 function IncidentsView({
   workspace,
-  filter,
-  setFilter,
+  filters,
+  setFilters,
   inspectIncident,
 }: {
   workspace: PrivacyControlPlaneWorkspace;
-  filter: string;
-  setFilter: (filter: string) => void;
+  filters: IncidentFiltersState;
+  setFilters: (filters: IncidentFiltersState) => void;
   inspectIncident: (incident: PrivacyIncident) => void;
 }) {
-  const incidents = workspace.incidents.filter((incident) =>
-    `${incident.id} ${incident.sourceApp} ${incident.finalDecision} ${incident.bundleVersion} ${incident.matchedRuleIds.join(" ")}`
-      .toLowerCase()
-      .includes(filter.toLowerCase())
-  );
+  const sourceOptions = [...new Set(workspace.incidents.map((incident) => incident.sourceApp))];
+  const bundleOptions = [...new Set(workspace.incidents.map((incident) => incident.bundleVersion))];
+  const incidents = workspace.incidents.filter((incident) => {
+    const queryMatches =
+      !filters.query ||
+      `${incident.id} ${incident.sourceApp} ${incident.finalDecision} ${incident.bundleVersion} ${incident.matchedRuleIds.join(" ")}`
+        .toLowerCase()
+        .includes(filters.query.toLowerCase());
+    const sourceMatches = !filters.sourceApp || incident.sourceApp === filters.sourceApp;
+    const levelMatches = !filters.level || incident.highestLevel === filters.level;
+    const actionMatches = !filters.action || incident.finalDecision === filters.action;
+    const bundleMatches = !filters.bundleVersion || incident.bundleVersion === filters.bundleVersion;
+    const statusMatches = !filters.status || incident.finalStatus === filters.status;
+
+    return (
+      queryMatches &&
+      sourceMatches &&
+      levelMatches &&
+      actionMatches &&
+      bundleMatches &&
+      statusMatches
+    );
+  });
 
   return (
     <Card title="Incidents" subtitle="Investigate blocked, transformed, and unsafe events." icon="policy_alert">
-      <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_repeat(3,160px)]">
+      <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_repeat(5,150px)]">
         <input
           aria-label="Search incidents"
           className={inputClass()}
           placeholder="Search source app, entity, level, action, rule, bundle"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
+          value={filters.query}
+          onChange={(event) => setFilters({ ...filters, query: event.target.value })}
         />
-        <select aria-label="Filter level" className={inputClass()}>
-          <option>All levels</option>
-          {LEVELS.map((level) => (
-            <option key={level}>{level}</option>
+        <select
+          aria-label="Filter source app"
+          className={inputClass()}
+          value={filters.sourceApp}
+          onChange={(event) => setFilters({ ...filters, sourceApp: event.target.value })}
+        >
+          <option value="">All apps</option>
+          {sourceOptions.map((source) => (
+            <option key={source} value={source}>
+              {source}
+            </option>
           ))}
         </select>
-        <select aria-label="Filter action" className={inputClass()}>
-          <option>All actions</option>
-          <option>blocked</option>
-          <option>transformed</option>
-          <option>allow</option>
+        <select
+          aria-label="Filter level"
+          className={inputClass()}
+          value={filters.level}
+          onChange={(event) => setFilters({ ...filters, level: event.target.value })}
+        >
+          <option value="">All levels</option>
+          {LEVELS.map((level) => (
+            <option key={level} value={level}>{level}</option>
+          ))}
         </select>
-        <select aria-label="Filter time range" className={inputClass()}>
-          <option>Last 24h</option>
-          <option>Last 7d</option>
-          <option>All time</option>
+        <select
+          aria-label="Filter action"
+          className={inputClass()}
+          value={filters.action}
+          onChange={(event) => setFilters({ ...filters, action: event.target.value })}
+        >
+          <option value="">All actions</option>
+          <option value="blocked">blocked</option>
+          <option value="transformed">transformed</option>
+          <option value="allow">allow</option>
+        </select>
+        <select
+          aria-label="Filter bundle"
+          className={inputClass()}
+          value={filters.bundleVersion}
+          onChange={(event) => setFilters({ ...filters, bundleVersion: event.target.value })}
+        >
+          <option value="">All bundles</option>
+          {bundleOptions.map((bundle) => (
+            <option key={bundle} value={bundle}>
+              {bundle}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Filter status"
+          className={inputClass()}
+          value={filters.status}
+          onChange={(event) => setFilters({ ...filters, status: event.target.value })}
+        >
+          <option value="">All status</option>
+          <option value="open">open</option>
+          <option value="reviewed">reviewed</option>
+          <option value="resolved">resolved</option>
         </select>
       </div>
 
@@ -1049,6 +1163,7 @@ function IncidentsView({
                 <th className="py-2 pr-4">Level</th>
                 <th className="py-2 pr-4">Decision</th>
                 <th className="py-2 pr-4">Bundle</th>
+                <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Time</th>
                 <th className="py-2 pr-4" />
               </tr>
@@ -1061,6 +1176,11 @@ function IncidentsView({
                   <td className="py-3 pr-4"><LevelBadge level={incident.highestLevel} /></td>
                   <td className="py-3 pr-4"><ActionBadge action={incident.finalDecision} /></td>
                   <td className="py-3 pr-4 font-mono text-xs text-text-muted">{incident.bundleVersion}</td>
+                  <td className="py-3 pr-4">
+                    <Badge variant={incident.finalStatus === "open" ? "warning" : "success"} size="sm">
+                      {incident.finalStatus}
+                    </Badge>
+                  </td>
                   <td className="py-3 pr-4 text-text-muted">{formatTime(incident.timestamp)}</td>
                   <td className="py-3 pr-4 text-right">
                     <Button size="sm" variant="secondary" onClick={() => inspectIncident(incident)}>
@@ -1080,9 +1200,13 @@ function IncidentsView({
 function IncidentDetailPanel({
   incident,
   setView,
+  openIncidentInTest,
+  inspectRule,
 }: {
   incident: PrivacyIncident | null;
   setView: (view: PrivacyFilterView) => void;
+  openIncidentInTest: (incident: PrivacyIncident) => void;
+  inspectRule: (ruleId: string) => void;
 }) {
   if (!incident) return null;
 
@@ -1129,10 +1253,15 @@ function IncidentDetailPanel({
         ))}
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2">
-        <Button variant="secondary" icon="science" onClick={() => setView("test")}>
+        <Button variant="secondary" icon="science" onClick={() => openIncidentInTest(incident)}>
           Open in Test Lab
         </Button>
-        <Button variant="secondary" icon="rule">
+        <Button
+          variant="secondary"
+          icon="rule"
+          onClick={() => inspectRule(incident.matchedRuleIds[0] || "")}
+          disabled={incident.matchedRuleIds.length === 0}
+        >
           Inspect Rule
         </Button>
         <Button variant="secondary" icon="difference" onClick={() => setView("releases")}>
@@ -1391,7 +1520,14 @@ export default function PrivacyFilterPageClient({
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
   const [ruleEditor, setRuleEditor] = useState<RuleEditorState | null>(null);
   const [entitySearch, setEntitySearch] = useState("");
-  const [incidentFilter, setIncidentFilter] = useState("");
+  const [incidentFilters, setIncidentFilters] = useState<IncidentFiltersState>({
+    query: "",
+    sourceApp: "",
+    level: "",
+    action: "",
+    bundleVersion: "",
+    status: "",
+  });
   const [selectedIncident, setSelectedIncident] = useState<PrivacyIncident | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<PrivacySettings | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -1410,9 +1546,7 @@ export default function PrivacyFilterPageClient({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/privacy/control-plane");
-      const json = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(formatError(json?.error));
+      const json = await privacyFilterService.getPrivacyControlPlaneWorkspace();
       setWorkspace(json);
       setSettingsDraft(json.settings);
       const firstRule = json.config.rules[0];
@@ -1458,18 +1592,60 @@ export default function PrivacyFilterPageClient({
     setRuleEditor(createRuleEditor(rule, workspace.config));
   }
 
-  async function patchWorkspace(body: Record<string, unknown>, successMessage: string) {
+  function selectRuleById(ruleId: string) {
+    if (!workspace || !ruleId) return;
+    const rule = workspace.config.rules.find((candidate) => candidate.id === ruleId);
+    if (!rule) return;
+    selectRule(rule);
+    changeView("policy");
+  }
+
+  function openIncidentInTest(incident: PrivacyIncident) {
+    setSelectedIncident(incident);
+    setTestInput((current) => ({
+      ...current,
+      inputMode: "plain-text",
+      rawInput: incident.requestSnippet,
+      sourceApp: incident.sourceApp,
+      bundleVersion: incident.bundleVersion,
+    }));
+    setTestResult(null);
+    changeView("test");
+  }
+
+  function testCurrentRule() {
+    if (!workspace || !ruleEditor) {
+      changeView("test");
+      return;
+    }
+    const entity = getEntity(workspace.config, ruleEditor.entityTypeId);
+    const sample =
+      ruleEditor.patternConfig.regex?.includes("@")
+        ? "Please review ana@example.com before provider routing."
+        : entity?.defaultTransform === "BLOCK"
+          ? "Please process 1234567890123 before the provider call."
+          : entity?.defaultTransform === "TOKENIZE"
+            ? "Please summarize OCB-PRJ-123 for the project team."
+            : `Please inspect ${entity?.name || "this value"} before sending.`;
+
+    setTestInput((current) => ({
+      ...current,
+      inputMode: "plain-text",
+      rawInput: sample,
+      bundleVersion: current.bundleVersion || workspace.overview.activeBundleVersion,
+      sourceApp: ruleEditor.scope?.sourceApps?.[0] || current.sourceApp,
+      profileId: ruleEditor.scope?.profileIds?.[0] || current.profileId,
+    }));
+    setTestResult(null);
+    changeView("test");
+  }
+
+  async function patchWorkspace(body: PrivacyControlPlanePatch, successMessage: string) {
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/privacy/control-plane", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(formatError(json?.error));
+      const json = await privacyFilterService.patchPrivacyControlPlaneWorkspace(body);
       setWorkspace(json);
       setSettingsDraft(json.settings);
       setNotice(successMessage);
@@ -1564,14 +1740,8 @@ export default function PrivacyFilterPageClient({
     setTesting(true);
     setError(null);
     try {
-      const response = await fetch("/api/privacy/control-plane/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(testInput),
-      });
-      const json = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(formatError(json?.error));
-      setTestResult(json.result);
+      const result = await privacyFilterService.runPrivacyFilterTest(testInput);
+      setTestResult(result);
     } catch (testError) {
       setError(testError instanceof Error ? testError.message : "Failed to run privacy test");
     } finally {
@@ -1583,13 +1753,7 @@ export default function PrivacyFilterPageClient({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch("/api/privacy/control-plane/bundles/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: releaseNotes }),
-      });
-      const json = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(formatError(json?.error));
+      const json = await privacyFilterService.publishPrivacyBundle(releaseNotes);
       setWorkspace(json.workspace || workspace);
       setNotice(`Published ${json.activeBundle?.version || "privacy bundle"}`);
       setShowPublishModal(false);
@@ -1610,13 +1774,7 @@ export default function PrivacyFilterPageClient({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch("/api/privacy/control-plane/bundles/rollback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: target.version }),
-      });
-      const json = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(formatError(json?.error));
+      const json = await privacyFilterService.rollbackPrivacyBundle(target.version);
       setWorkspace(json.workspace || workspace);
       setNotice(`Rolled back to ${json.activeBundle?.version || target.version}`);
       setShowRollbackModal(false);

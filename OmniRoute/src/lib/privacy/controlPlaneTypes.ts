@@ -132,6 +132,25 @@ export interface PrivacyRouteDecision {
   reason: string;
 }
 
+export interface PrivacyEffectivePolicyPreview {
+  sourceApp: string;
+  sourceName: string;
+  profileId: string;
+  profileName: string;
+  entityKey: string;
+  entityLabel: string;
+  level: PrivacyLevel;
+  action: PrivacyTransformMode;
+  levelSource: "entity default" | "profile override";
+  actionSource: "entity default" | "profile override";
+  restoreMode: PrivacyConfig["entityTypes"][number]["restoreMode"];
+  placeholderPrefix: string;
+  ruleIds: string[];
+  dictionarySetIds: string[];
+  warnings: string[];
+  summary: string;
+}
+
 export interface PrivacyTestInput {
   inputMode: "plain-text" | "json";
   rawInput: string;
@@ -159,6 +178,7 @@ export interface PrivacyControlPlaneWorkspace {
   overview: PrivacyControlPlaneOverview;
   config: PrivacyConfig;
   sourceApps: PrivacySourceApp[];
+  effectivePolicies: PrivacyEffectivePolicyPreview[];
   incidents: PrivacyIncident[];
   bundles: PrivacyBundleVersionSummary[];
   settings: PrivacySettings;
