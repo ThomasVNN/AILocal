@@ -1,3 +1,11 @@
 [registry."mizuk1210.mulley-ray.ts.net:9999"]
   http = true
   insecure = true
+
+[registry."192.168.1.65:9999"]
+  http = true
+  insecure = true
+
+[registry."100.101.77.8:9999"]
+  http = true
+  insecure = true

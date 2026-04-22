@@ -189,6 +189,9 @@ build_openwebui() {
     "$ROOT_DIR/open-webui/Dockerfile" \
     "$ROOT_DIR/open-webui" \
     --build-arg BUILD_NODE_OPTIONS="$(resolve_value OPENWEBUI_BUILD_NODE_OPTIONS '--max-old-space-size=4096')" \
+    --build-arg NPM_CONFIG_STRICT_SSL="$(resolve_value OPENWEBUI_BUILD_NPM_STRICT_SSL 'true')" \
+    --build-arg NODE_TLS_REJECT_UNAUTHORIZED="$(resolve_value OPENWEBUI_BUILD_NODE_TLS_REJECT_UNAUTHORIZED '1')" \
+    --build-arg PIP_TRUSTED_HOSTS="$(resolve_value OPENWEBUI_BUILD_PIP_TRUSTED_HOSTS '')" \
     --build-arg USE_OLLAMA="$(resolve_value OPENWEBUI_BUILD_USE_OLLAMA 'false')" \
     --build-arg USE_SLIM="$(resolve_value OPENWEBUI_BUILD_USE_SLIM 'true')" \
     --build-arg USE_PERMISSION_HARDENING="$(resolve_value OPENWEBUI_BUILD_USE_PERMISSION_HARDENING 'false')" \
