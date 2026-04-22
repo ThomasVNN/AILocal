@@ -134,6 +134,13 @@ const GEMINI_WEB2API_STATIC_MODELS = [
   { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite" },
 ];
 
+const CLAUDE_WEB2API_STATIC_MODELS = [
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+  { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (2025-09-29)" },
+  { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5 (2025-10-01)" },
+];
+
 // Providers that return hardcoded models (no remote /models API)
 const STATIC_MODEL_PROVIDERS: Record<string, () => Array<{ id: string; name: string }>> = {
   deepgram: () => [
@@ -181,6 +188,7 @@ const STATIC_MODEL_PROVIDERS: Record<string, () => Array<{ id: string; name: str
   qoder: () => getStaticQoderModels(),
   "perplexity-web2api": () => getPerplexityWeb2ApiFallbackModels(),
   "chatgpt-web2api": () => getChatgptWeb2ApiFallbackModels(),
+  claudew2a: () => CLAUDE_WEB2API_STATIC_MODELS,
   "gemini-web2api": () => GEMINI_WEB2API_STATIC_MODELS,
 };
 

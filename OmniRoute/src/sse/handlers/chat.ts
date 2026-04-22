@@ -749,7 +749,8 @@ async function handleSingleModelChat(
     const hasResettableWebQuota =
       provider === "chatgpt-web2api" ||
       provider === "perplexity-web2api" ||
-      provider === "gemini-web2api";
+      provider === "gemini-web2api" ||
+      provider === "claudew2a";
     if (result.status === 429 && provider !== "gemini" && !hasResettableWebQuota) {
       markAccountExhaustedFrom429(credentials.connectionId, provider);
     }

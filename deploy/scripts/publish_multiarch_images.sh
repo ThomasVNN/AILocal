@@ -279,6 +279,9 @@ publish_openwebui() {
     "$ROOT_DIR/open-webui/Dockerfile" \
     "$ROOT_DIR/open-webui" \
     --build-arg "BUILD_NODE_OPTIONS=${OPENWEBUI_BUILD_NODE_OPTIONS:---max-old-space-size=4096}" \
+    --build-arg "NPM_CONFIG_STRICT_SSL=${OPENWEBUI_BUILD_NPM_STRICT_SSL:-true}" \
+    --build-arg "NODE_TLS_REJECT_UNAUTHORIZED=${OPENWEBUI_BUILD_NODE_TLS_REJECT_UNAUTHORIZED:-1}" \
+    --build-arg "PIP_TRUSTED_HOSTS=${OPENWEBUI_BUILD_PIP_TRUSTED_HOSTS:-}" \
     --build-arg "USE_OLLAMA=${OPENWEBUI_BUILD_USE_OLLAMA:-false}" \
     --build-arg "USE_SLIM=${OPENWEBUI_BUILD_USE_SLIM:-true}" \
     --build-arg "USE_PERMISSION_HARDENING=${OPENWEBUI_BUILD_USE_PERMISSION_HARDENING:-false}" \

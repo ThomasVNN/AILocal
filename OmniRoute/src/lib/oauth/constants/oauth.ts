@@ -321,5 +321,6 @@ export const PROVIDERS = {
   CLINE: "cline",
   PERPLEXITY_WEB2API: "perplexity-web2api",
   CHATGPT_WEB2API: "chatgpt-web2api",
+  CLAUDEW2A: "claudew2a",
   GEMINI_WEB2API: "gemini-web2api",
 };

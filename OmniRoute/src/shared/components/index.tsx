@@ -29,6 +29,7 @@ export { default as ClaudeCodeImportModal } from "./ClaudeCodeImportModal";
 export { default as ClaudeCodeOAuthWrapper } from "./ClaudeCodeOAuthWrapper";
 export { default as PerplexityWeb2ApiAuthModal } from "./PerplexityWeb2ApiAuthModal";
 export { default as ChatgptWeb2ApiAuthModal } from "./ChatgptWeb2ApiAuthModal";
+export { default as ClaudeWeb2ApiAuthModal } from "./ClaudeWeb2ApiAuthModal";
 export { default as GeminiWeb2ApiAuthModal } from "./GeminiWeb2ApiAuthModal";
 export { default as SegmentedControl } from "./SegmentedControl";
 export { default as Breadcrumbs } from "./Breadcrumbs";

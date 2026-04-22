@@ -5,6 +5,7 @@ import {
   validateChatgptSessionCookie,
   validateChatgptSessionPayload,
 } from "@omniroute/open-sse/utils/chatgptSession.ts";
+import { validateClaudeWebSession } from "@omniroute/open-sse/utils/claudeWebSession.ts";
 import { validateGeminiWebSession } from "@omniroute/open-sse/utils/geminiWebSession.ts";
 import {
   buildClaudeCodeCompatibleHeaders,
@@ -1490,6 +1491,33 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
         planType: result.planType,
         expiresIn: result.expiresIn,
         cookieNames: result.cookieNames,
+      };
+    },
+    // Claude Web2API - validates imported claude.ai browser request headers/cookies
+    "claudew2a": async ({ apiKey, providerSpecificData }: any) => {
+      const result = await validateClaudeWebSession(apiKey, {
+        organizationUuid: providerSpecificData?.organizationUuid,
+        requestHeaders: providerSpecificData?.requestHeaders,
+        signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
+      });
+
+      if (!result.valid) {
+        return {
+          valid: false,
+          error: result.error,
+          statusCode: result.statusCode,
+          code: result.errorCode,
+        };
+      }
+
+      return {
+        valid: true,
+        error: null,
+        statusCode: result.statusCode,
+        cookieString: result.cookieString,
+        cookieNames: result.cookieNames,
+        organizationUuid: result.organizationUuid,
+        requestHeaders: result.requestHeaders,
       };
     },
     // Gemini Web2API — validates imported browser headers/cookies via Gemini runtime endpoints

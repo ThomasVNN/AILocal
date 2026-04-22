@@ -2127,7 +2127,8 @@ export async function handleChatCore({
         const usesResettableWebQuota =
           provider === "chatgpt-web2api" ||
           provider === "perplexity-web2api" ||
-          provider === "gemini-web2api";
+          provider === "gemini-web2api" ||
+          provider === "claudew2a";
 
         if (errorType === PROVIDER_ERROR_TYPES.FORBIDDEN) {
           await updateProviderConnection(connectionId, {

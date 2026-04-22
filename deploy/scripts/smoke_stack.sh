@@ -30,6 +30,17 @@ normalize_bool() {
   esac
 }
 
+node() {
+  local node_bin
+  node_bin="$(type -P node || true)"
+  if [[ -n "$node_bin" ]]; then
+    "$node_bin" "$@"
+    return
+  fi
+
+  bash "$DEPLOY_DIR/scripts/stack.sh" apps exec -T omniroute node "$@"
+}
+
 resolve_smoke_models() {
   local models_payload="$1"
   node - "$models_payload" "${PREFERRED_SMOKE_MODELS[@]}" -- "${SUPPORTED_SMOKE_PROVIDER_PREFIXES[@]}" <<'NODE'
@@ -358,24 +369,18 @@ print("OK: OpenWebUI can reach OmniRoute")
 PY
 
   echo "[4/5] Verify OpenClaw runtime points to OmniRoute"
-  node - "$LA_DATA_ROOT" "$expected_network_base_url" <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
+  openclaw_base_url="$(
+    bash "$DEPLOY_DIR/scripts/stack.sh" apps exec -T openclaw-gateway sh -lc \
+      'if [ -n "${OPENAI_BASE_URL:-}" ]; then printf "%s" "$OPENAI_BASE_URL"; else printf "%s" "${OPENAI_API_BASE_URL:-}"; fi'
+  )"
+  if [[ "$openclaw_base_url" != "$expected_network_base_url" ]]; then
+    echo "FAIL: OpenClaw baseUrl=${openclaw_base_url:-<empty>} expected=${expected_network_base_url}" >&2
+    exit 1
+  fi
+  echo "OK: OpenClaw baseUrl=$openclaw_base_url"
 
-const dataRoot = process.argv[2];
-const expectedBaseUrl = process.argv[3];
-const configPath = path.join(dataRoot, "apps", "openclaw", "config", "openclaw.json");
-const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-const actualBaseUrl = config?.models?.providers?.omniroute?.baseUrl;
-if (actualBaseUrl !== expectedBaseUrl) {
-  console.error(`FAIL: OpenClaw config baseUrl=${actualBaseUrl} expected=${expectedBaseUrl}`);
-  process.exit(1);
-}
-console.log(`OK: OpenClaw config baseUrl=${actualBaseUrl}`);
-NODE
-
-  bash "$DEPLOY_DIR/scripts/stack.sh" apps exec -T openclaw-gateway node - "$OPENCLAW_OPENAI_API_KEY" <<'NODE'
-const apiKey = process.argv[2];
+  bash "$DEPLOY_DIR/scripts/stack.sh" apps exec -T openclaw-gateway sh -lc 'test -n "${OPENAI_API_KEY:-}" && OPENCLAW_SMOKE_KEY="$OPENAI_API_KEY" node -' <<'NODE'
+const apiKey = process.env.OPENCLAW_SMOKE_KEY;
 fetch("http://omniroute:20129/v1/models", {
   headers: { Authorization: `Bearer ${apiKey}` },
 })

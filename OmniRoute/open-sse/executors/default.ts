@@ -1,7 +1,8 @@
 import { BaseExecutor } from "./base.ts";
-import { PROVIDERS, OAUTH_ENDPOINTS } from "../config/constants.ts";
+import { PROVIDERS } from "../config/constants.ts";
 import { getAccessToken } from "../services/tokenRefresh.ts";
 import { getRotatingApiKey } from "../services/apiKeyRotator.ts";
+import { randomUUID } from "crypto";
 import {
   buildClaudeCodeCompatibleHeaders,
   CLAUDE_CODE_COMPATIBLE_DEFAULT_CHAT_PATH,
@@ -12,6 +13,7 @@ import { isClaudeCodeCompatible } from "../services/provider.ts";
 import { normalizePerplexityWeb2ApiModel } from "../translator/helpers/perplexityWeb2ApiHelper.ts";
 import { compactChatgptCookieString } from "../utils/chatgptSession.ts";
 import { buildGeminiAuthorizationFromCookieHeader } from "../utils/geminiWebSession.ts";
+<<<<<<< .merge_file_pPwSr2
 =======
 import { getGigachatAccessToken } from "../services/gigachatAuth.ts";
 import { applyProviderRequestDefaults } from "../services/providerRequestDefaults.ts";
@@ -57,13 +59,49 @@ function normalizeGigachatChatUrl(baseUrl) {
   return `${normalized}/chat/completions`;
 }
 >>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+=======
+import {
+  buildClaudeWebCompletionPayload,
+  buildClaudeWebRequestHeaders,
+  normalizeClaudeWebModel,
+  normalizeClaudeWebSessionInput,
+} from "../utils/claudeWebSession.ts";
+
+function resolveClaudeWebSession(credentials) {
+  const psd = credentials?.providerSpecificData || {};
+  const rawSessionInput =
+    psd.cookieString || credentials?.refreshToken || credentials?.accessToken || credentials?.apiKey;
+  const normalized = normalizeClaudeWebSessionInput(rawSessionInput, {
+    organizationUuid: psd.organizationUuid,
+    requestHeaders: psd.requestHeaders,
+  });
+  if (!normalized.valid) {
+    throw new Error(normalized.error);
+  }
+  return normalized;
+}
+
+function ensureClaudeWebConversationUuid(credentials) {
+  const psd = credentials.providerSpecificData || {};
+  credentials.providerSpecificData = psd;
+  const existing =
+    typeof psd.__claudeWebConversationUuid === "string"
+      ? psd.__claudeWebConversationUuid
+      : typeof psd.conversationUuid === "string"
+        ? psd.conversationUuid
+        : null;
+  const conversationUuid = existing || randomUUID();
+  psd.__claudeWebConversationUuid = conversationUuid;
+  return conversationUuid;
+}
+>>>>>>> .merge_file_P6I8Mx
 
 export class DefaultExecutor extends BaseExecutor {
   constructor(provider) {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  buildUrl(model, stream, urlIndex = 0, credentials = null) {
+  buildUrl(model: string, stream: boolean, urlIndex = 0, credentials: ProviderCredentials | null = null): string {
     void model;
     void stream;
     void urlIndex;
@@ -124,6 +162,12 @@ export class DefaultExecutor extends BaseExecutor {
       case "minimax":
       case "minimax-cn":
         return `${this.config.baseUrl}?beta=true`;
+      case "claudew2a": {
+        if (!credentials) throw new Error("Claude Web2API credentials are required");
+        const session = resolveClaudeWebSession(credentials);
+        const conversationUuid = ensureClaudeWebConversationUuid(credentials);
+        return `https://claude.ai/api/organizations/${session.organizationUuid}/chat_conversations/${conversationUuid}/completion`;
+      }
       case "gemini":
       case "gemini-web2api":
         return `${this.config.baseUrl}/${model}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
@@ -288,6 +332,26 @@ export class DefaultExecutor extends BaseExecutor {
         delete headers["Authorization"];
         break;
       }
+      case "claudew2a": {
+        const session = resolveClaudeWebSession(credentials);
+        const requestHeaders =
+          credentials.providerSpecificData?.requestHeaders &&
+          typeof credentials.providerSpecificData.requestHeaders === "object"
+            ? credentials.providerSpecificData.requestHeaders
+            : session.requestHeaders;
+        const claudeHeaders = buildClaudeWebRequestHeaders({
+          cookieString: session.cookieString,
+          organizationUuid: session.organizationUuid,
+          requestHeaders: {
+            ...session.requestHeaders,
+            ...requestHeaders,
+          },
+          accept: stream ? "text/event-stream" : "application/json",
+        });
+        for (const key of Object.keys(headers)) delete headers[key];
+        Object.assign(headers, claudeHeaders);
+        break;
+      }
       default:
         if (isClaudeCodeCompatible(this.provider)) {
           return buildClaudeCodeCompatibleHeaders(
@@ -359,6 +423,25 @@ export class DefaultExecutor extends BaseExecutor {
       };
 
       return transformed;
+    }
+
+    if (this.provider === "claudew2a" && body && typeof body === "object") {
+      const psd = credentials.providerSpecificData || {};
+      credentials.providerSpecificData = psd;
+      const conversationUuid =
+        typeof psd.__claudeWebConversationUuid === "string"
+          ? psd.__claudeWebConversationUuid
+          : ensureClaudeWebConversationUuid(credentials);
+      resolveClaudeWebSession(credentials);
+
+      return buildClaudeWebCompletionPayload({
+        model: normalizeClaudeWebModel(model),
+        body: body as Record<string, unknown>,
+        conversationUuid,
+        timezone: typeof psd.timezone === "string" ? psd.timezone : null,
+        locale: typeof psd.locale === "string" ? psd.locale : null,
+        temporary: psd.temporaryConversations === true,
+      });
     }
 
     return body;

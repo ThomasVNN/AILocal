@@ -85,6 +85,14 @@ export const OAUTH_PROVIDERS = {
     color: "#10A37F",
     textIcon: "CW",
   },
+  claudew2a: {
+    id: "claudew2a",
+    alias: "claude-w2a",
+    name: "Claude (Web2API)",
+    icon: "smart_toy",
+    color: "#D97757",
+    textIcon: "CW",
+  },
   "gemini-web2api": {
     id: "gemini-web2api",
     alias: "gemini-w2a",

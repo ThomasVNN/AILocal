@@ -1129,6 +1129,36 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     ],
   },
 
+  claudew2a: {
+    id: "claudew2a",
+    alias: "claude-w2a",
+    format: "claude",
+    executor: "default",
+    baseUrl: "https://claude.ai",
+    authType: "oauth",
+    authHeader: "cookie",
+    defaultContextLength: 200000,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.3561.0 Chrome/146.0.0.0 Electron/41.0.0 Safari/537.36",
+      Origin: "https://claude.ai",
+      Referer: "https://claude.ai/new",
+      "Accept-Language": "en-US,en;q=0.9",
+      "anthropic-client-app": "com.anthropic.claudefordesktop",
+      "anthropic-client-platform": "desktop_app",
+      "anthropic-client-os-platform": "darwin",
+      "anthropic-client-version": "1.3561.0",
+      "anthropic-desktop-topbar": "1",
+      "anthropic-version": "2023-06-01",
+    },
+    models: [
+      { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+      { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+      { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" },
+      { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
+    ],
+  },
+
   "gemini-web2api": {
     id: "gemini-web2api",
     alias: "gemini-w2a",

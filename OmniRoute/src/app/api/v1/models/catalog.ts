@@ -44,8 +44,25 @@ const FALLBACK_ALIAS_TO_PROVIDER = {
   kmc: "kimi-coding",
   kr: "kiro",
   "gemini-w2a": "gemini-web2api",
+  "claude-w2a": "claudew2a",
   qw: "qwen",
 };
+
+const PROVIDER_ID_ONLY_CATALOG_PROVIDERS = new Set([
+  "chatgpt-web2api",
+  "perplexity-web2api",
+  "claudew2a",
+  "gemini-web2api",
+]);
+
+function getCatalogPrimaryPrefix(alias: string, canonicalProviderId: string): string {
+  // Web2API providers use the provider ID in deploy/bootstrap smoke paths.
+  // Keep short aliases routable internally, but do not list them as duplicate models.
+  if (PROVIDER_ID_ONLY_CATALOG_PROVIDERS.has(canonicalProviderId)) {
+    return canonicalProviderId;
+  }
+  return alias;
+}
 
 const VISION_MODEL_KEYWORDS = [
   "gpt-4o",
@@ -331,7 +348,7 @@ export async function getUnifiedModelsResponse(
     for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
       const providerId = aliasToProviderId[alias] || alias;
       const canonicalProviderId = FALLBACK_ALIAS_TO_PROVIDER[alias] || providerId;
-      const primaryPrefix = canonicalProviderId === "chatgpt-web2api" ? canonicalProviderId : alias;
+      const primaryPrefix = getCatalogPrimaryPrefix(alias, canonicalProviderId);
 
       // Skip blocked providers (Issue #96)
       if (blockedProviders.has(alias) || blockedProviders.has(canonicalProviderId)) continue;
@@ -380,8 +397,8 @@ export async function getUnifiedModelsResponse(
         });
 
         // Add provider-id prefix in addition to short alias (ex: kiro/model + kr/model).
-        // ChatGPT Web2API is intentionally exposed as provider-id only to avoid
-        // duplicate/ambiguous model naming between chatgpt-w2a/* and chatgpt-web2api/*.
+        // Web2API providers are exposed as provider-id only to avoid duplicate,
+        // ambiguous naming between short aliases and operational provider IDs.
         if (canonicalProviderId !== primaryPrefix) {
           const providerIdModel = `${canonicalProviderId}/${model.id}`;
           const providerVisionFields =
@@ -584,6 +601,7 @@ export async function getUnifiedModelsResponse(
         const prefix = providerIdToPrefix[providerId];
         const alias = prefix || providerIdToAlias[providerId] || providerId;
         const canonicalProviderId = FALLBACK_ALIAS_TO_PROVIDER[alias] || providerId;
+        const primaryPrefix = getCatalogPrimaryPrefix(alias, canonicalProviderId);
 
         // Only include if provider is active — check alias, canonical ID, raw providerId,
         // or the parent provider type (for compatible providers whose node ID is a UUID)
@@ -610,7 +628,7 @@ export async function getUnifiedModelsResponse(
           }
 
           // Skip if already added as built-in
-          const aliasId = `${alias}/${modelId}`;
+          const aliasId = `${primaryPrefix}/${modelId}`;
           if (models.some((m) => m.id === aliasId)) continue;
 
           // Determine type from supportedEndpoints
@@ -649,7 +667,7 @@ export async function getUnifiedModelsResponse(
           });
 
           // Only add provider-prefixed version if different from alias
-          if (canonicalProviderId !== alias && !prefix) {
+          if (canonicalProviderId !== primaryPrefix && !prefix) {
             const providerPrefixedId = `${canonicalProviderId}/${modelId}`;
             if (models.some((m) => m.id === providerPrefixedId)) continue;
             const providerVisionFields =

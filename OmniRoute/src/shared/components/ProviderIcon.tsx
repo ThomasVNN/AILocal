@@ -35,6 +35,7 @@ const LOBEHUB_PROVIDER_MAP: Record<string, string> = {
 <<<<<<< HEAD
   "perplexity-web2api": "perplexity",
   "chatgpt-web2api": "openai",
+  claudew2a: "anthropic",
   "gemini-web2api": "google",
 =======
   "perplexity-search": "perplexity",
