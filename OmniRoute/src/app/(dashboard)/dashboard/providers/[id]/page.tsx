@@ -3051,76 +3051,18 @@ export default function ProviderDetailPage() {
       )}
 
       {/* Modals */}
-<<<<<<< HEAD
-      {providerId === "kiro" ? (
-        <KiroOAuthWrapper
-          isOpen={showOAuthModal}
-          providerInfo={providerInfo}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "claude" ? (
-        <ClaudeCodeOAuthWrapper
-          isOpen={showOAuthModal}
-          providerInfo={providerInfo}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "cursor" ? (
-        <CursorAuthModal
-          isOpen={showOAuthModal}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "perplexity-web2api" ? (
-        <PerplexityWeb2ApiAuthModal
-          isOpen={showOAuthModal}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "chatgpt-web2api" ? (
-        <ChatgptWeb2ApiAuthModal
-          isOpen={showOAuthModal}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "claudew2a" ? (
-        <ClaudeWeb2ApiAuthModal
-          isOpen={showOAuthModal}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : providerId === "gemini-web2api" ? (
-        <GeminiWeb2ApiAuthModal
-          isOpen={showOAuthModal}
-          onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
-        />
-      ) : (
-        <OAuthModal
-          isOpen={showOAuthModal}
-=======
       {!isUpstreamProxyProvider &&
         (providerId === "kiro" ? (
           <KiroOAuthWrapper
+            isOpen={showOAuthModal}
+            providerInfo={providerInfo}
+            onSuccess={handleOAuthSuccess}
+            onClose={() => {
+              setShowOAuthModal(false);
+            }}
+          />
+        ) : providerId === "claude" ? (
+          <ClaudeCodeOAuthWrapper
             isOpen={showOAuthModal}
             providerInfo={providerInfo}
             onSuccess={handleOAuthSuccess}
@@ -3133,6 +3075,42 @@ export default function ProviderDetailPage() {
             isOpen={showOAuthModal}
             onSuccess={handleOAuthSuccess}
             onClose={() => {
+              setShowOAuthModal(false);
+            }}
+          />
+        ) : providerId === "perplexity-web2api" ? (
+          <PerplexityWeb2ApiAuthModal
+            isOpen={showOAuthModal}
+            onSuccess={handleOAuthSuccess}
+            onClose={() => {
+              userDismissed.current = true;
+              setShowOAuthModal(false);
+            }}
+          />
+        ) : providerId === "chatgpt-web2api" ? (
+          <ChatgptWeb2ApiAuthModal
+            isOpen={showOAuthModal}
+            onSuccess={handleOAuthSuccess}
+            onClose={() => {
+              userDismissed.current = true;
+              setShowOAuthModal(false);
+            }}
+          />
+        ) : providerId === "claudew2a" ? (
+          <ClaudeWeb2ApiAuthModal
+            isOpen={showOAuthModal}
+            onSuccess={handleOAuthSuccess}
+            onClose={() => {
+              userDismissed.current = true;
+              setShowOAuthModal(false);
+            }}
+          />
+        ) : providerId === "gemini-web2api" ? (
+          <GeminiWeb2ApiAuthModal
+            isOpen={showOAuthModal}
+            onSuccess={handleOAuthSuccess}
+            onClose={() => {
+              userDismissed.current = true;
               setShowOAuthModal(false);
             }}
           />
@@ -3150,7 +3128,6 @@ export default function ProviderDetailPage() {
       {!isUpstreamProxyProvider && (
         <AddApiKeyModal
           isOpen={showAddApiKeyModal}
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
           provider={providerId}
           providerName={providerInfo.name}
           isCompatible={isCompatible}

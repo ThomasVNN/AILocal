@@ -443,15 +443,11 @@ export async function checkConnection(conn) {
     }
 
     await updateProviderConnection(conn.id, updateData);
-<<<<<<< HEAD
     log(
-      `${LOG_PREFIX} ✓ ${conn.provider}/${conn.name || conn.email || conn.id} refreshed${
+      `${LOG_PREFIX} ✓ ${conn.provider}/${getConnectionLogLabel(conn)} refreshed${
         stillRateLimited ? " (cooldown preserved)" : ""
       }`
     );
-=======
-    log(`${LOG_PREFIX} ✓ ${conn.provider}/${getConnectionLogLabel(conn)} refreshed`);
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   } else {
     const updateData = buildRefreshFailureUpdate(conn, now);
     await updateProviderConnection(conn.id, updateData);

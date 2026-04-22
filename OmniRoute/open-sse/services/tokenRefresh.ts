@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { PROVIDERS, OAUTH_ENDPOINTS } from "../config/constants.ts";
-<<<<<<< HEAD
-import { createHmac } from "node:crypto";
+import { createHmac, pbkdf2Sync } from "node:crypto";
 import {
   buildPerplexitySessionProviderData,
   validatePerplexitySessionCookie,
@@ -11,11 +10,8 @@ import {
   validateChatgptAccessToken,
   validateChatgptSessionCookie,
 } from "../utils/chatgptSession.ts";
-=======
 import { getGitHubCopilotRefreshHeaders } from "../config/providerHeaderProfiles.ts";
-import { pbkdf2Sync } from "node:crypto";
 import { runWithProxyContext } from "../utils/proxyFetch.ts";
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 // Token expiry buffer (refresh if expires within 5 minutes)
 export const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
@@ -1000,8 +996,7 @@ export function isUnrecoverableRefreshError(result) {
  * For perplexity-web2api, the "refresh token" is the full cookie string
  * stored in accessToken (there is no separate refresh token).
  */
-<<<<<<< HEAD
-export async function getAccessToken(provider, credentials, log) {
+export async function getAccessToken(provider, credentials, log, proxyConfig: unknown = null) {
   // perplexity-web2api uses the accessToken (full cookie string) as its refresh credential
   const isPerplexityWeb2Api = provider === "perplexity-web2api";
   const isChatgptWeb2Api = provider === "chatgpt-web2api";
@@ -1013,11 +1008,6 @@ export async function getAccessToken(provider, credentials, log) {
 
   if (!credentials || !tokenForRefresh || typeof tokenForRefresh !== "string") {
     log?.warn?.("TOKEN_REFRESH", `No valid refresh credential available for provider: ${provider}`);
-=======
-export async function getAccessToken(provider, credentials, log, proxyConfig: unknown = null) {
-  if (!credentials || !credentials.refreshToken || typeof credentials.refreshToken !== "string") {
-    log?.warn?.("TOKEN_REFRESH", `No valid refresh token available for provider: ${provider}`);
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     return null;
   }
 

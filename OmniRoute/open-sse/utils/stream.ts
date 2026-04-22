@@ -71,16 +71,13 @@ type TranslateState = ReturnType<typeof initState> & {
   finishReason?: unknown;
   /** Accumulated message content for call log response body */
   accumulatedContent?: string;
-<<<<<<< HEAD
   perplexityRawText?: string;
-=======
   upstreamError?: {
     status: number;
     type: string;
     code: string;
     message: string;
   } | null;
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 };
 
 type ToolCall = {

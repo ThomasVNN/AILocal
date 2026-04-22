@@ -389,6 +389,8 @@ export async function validatePerplexitySessionCookie(
     getSetCookieHeaders(response.headers)
   );
 
+  const user = payload.user as Record<string, unknown>;
+
   return {
     valid: true,
     statusCode: response.status,
@@ -396,9 +398,9 @@ export async function validatePerplexitySessionCookie(
     cookieNames: mergedCookies.cookieNames,
     setCookieNames: mergedCookies.setCookieNames,
     session: {
-      id: toNullableString(payload.user.id),
-      email: toNullableString(payload.user.email),
-      name: toNullableString(payload.user.name),
+      id: toNullableString(user.id),
+      email: toNullableString(user.email),
+      name: toNullableString(user.name),
     },
     raw: payload,
   };

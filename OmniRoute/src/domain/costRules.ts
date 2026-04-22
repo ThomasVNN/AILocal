@@ -10,14 +10,6 @@
  */
 
 import {
-<<<<<<< HEAD
-  saveBudget,
-  loadBudget,
-  loadAllBudgets,
-  saveCostEntry,
-  loadCostEntries,
-=======
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   deleteAllCostData,
   deleteBudget as dbDeleteBudget,
   deleteCostEntries,
@@ -103,6 +95,7 @@ const RESET_TIME_REGEX = /^(\d{2}):(\d{2})$/;
 
 /** @type {Map<string, NormalizedBudgetConfig>} In-memory cache for budgets */
 const budgets = new Map<string, NormalizedBudgetConfig>();
+let _budgetsLoaded = false;
 
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -369,7 +362,6 @@ export function getBudget(apiKeyId: string): NormalizedBudgetConfig | null {
     return syncBudgetSchedule(apiKeyId, cached);
   }
 
-<<<<<<< HEAD
   // If we haven't attempted a batch preload yet, do it now to avoid N individual DB lookups
   if (!_budgetsLoaded) {
     _budgetsLoaded = true;
@@ -388,8 +380,6 @@ export function getBudget(apiKeyId: string): NormalizedBudgetConfig | null {
   }
 
   // Try loading individual entry from DB as fallback
-=======
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   try {
     const fromDb = loadBudget(apiKeyId) as BudgetConfig | null;
     if (fromDb) {

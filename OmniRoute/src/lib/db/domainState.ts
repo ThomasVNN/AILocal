@@ -238,25 +238,6 @@ export function loadBudget(apiKeyId) {
 }
 
 /**
-<<<<<<< HEAD
- * Load all budget configs (for batch preloading into memory).
- * @returns {Record<string, { dailyLimitUsd: number, monthlyLimitUsd: number, warningThreshold: number }>}
- */
-export function loadAllBudgets() {
-  const db = getDbInstance();
-  const rows = db.prepare("SELECT api_key_id, daily_limit_usd, monthly_limit_usd, warning_threshold FROM domain_budgets").all();
-  const result: Record<string, unknown> = {};
-  for (const row of rows) {
-    const record = asRecord(row);
-    const id = typeof record.api_key_id === "string" ? record.api_key_id : null;
-    if (!id) continue;
-    result[id] = {
-      dailyLimitUsd: toNumber(record.daily_limit_usd),
-      monthlyLimitUsd: toNumber(record.monthly_limit_usd),
-      warningThreshold: toNumber(record.warning_threshold, 0.8),
-    };
-  }
-=======
  * Load all budget configs.
  * @returns {Record<string, BudgetConfigRecord>}
  */
@@ -288,13 +269,10 @@ export function loadAllBudgets() {
     };
   }
 
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   return result;
 }
 
 /**
-<<<<<<< HEAD
-=======
  * Persist a budget reset log entry.
  * @param {BudgetResetLogRecord} entry
  */
@@ -354,7 +332,6 @@ export function loadBudgetResetLogs(apiKeyId: string, limit = 10) {
 }
 
 /**
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
  * Delete a budget config.
  * @param {string} apiKeyId
  */

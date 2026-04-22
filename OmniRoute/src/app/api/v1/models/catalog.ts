@@ -20,17 +20,14 @@ import { getAllMusicModels } from "@omniroute/open-sse/config/musicRegistry.ts";
 import { REGISTRY } from "@omniroute/open-sse/config/providerRegistry.ts";
 import { getSyncedAvailableModels } from "@/lib/db/models";
 import { getCompatibleFallbackModels } from "@/lib/providers/managedAvailableModels";
-<<<<<<< HEAD
 import { discoverPerplexityWebModels } from "@omniroute/open-sse/utils/perplexityWebModels.ts";
 import { discoverChatgptWebModels } from "@omniroute/open-sse/utils/chatgptWebModels.ts";
-=======
 import { hasEligibleConnectionForModel } from "@/domain/connectionModelRules";
 import {
   INTERNAL_PROXY_ERROR,
   enrichCatalogModelEntry,
   getCatalogDiagnosticsHeaders,
 } from "@/lib/modelMetadataRegistry";
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 const FALLBACK_ALIAS_TO_PROVIDER = {
   ag: "antigravity",
@@ -293,7 +290,7 @@ export async function getUnifiedModelsResponse(
     // Collect models from active providers (or all if none active)
     const models = [];
     const timestamp = Math.floor(Date.now() / 1000);
-    const dynamicProviderModels = new Map<string, Array<{ id: string; name: string }>>();
+    const dynamicProviderModels = new Map<string, Array<{ id: string; name: string; contextLength?: number }>>();
 
     // Add combos first (they appear at the top) — only active ones
     for (const combo of combos) {
@@ -362,7 +359,6 @@ export async function getUnifiedModelsResponse(
       const registryEntry = REGISTRY[alias] || REGISTRY[canonicalProviderId];
       const defaultContextLength = registryEntry?.defaultContextLength;
 
-<<<<<<< HEAD
       const effectiveModels =
         canonicalProviderId === "perplexity-web2api"
           ? dynamicProviderModels.get("perplexity-web2api") || providerModels
@@ -371,12 +367,8 @@ export async function getUnifiedModelsResponse(
             : providerModels;
 
       for (const model of effectiveModels) {
-        const aliasId = `${primaryPrefix}/${model.id}`;
-=======
-      for (const model of providerModels) {
         if (!providerSupportsModel(canonicalProviderId, model.id)) continue;
-        const aliasId = `${alias}/${model.id}`;
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+        const aliasId = `${primaryPrefix}/${model.id}`;
         if (getModelIsHidden(canonicalProviderId, model.id)) continue;
 
         const visionFields =

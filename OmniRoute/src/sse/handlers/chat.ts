@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import {
-  getProviderCredentialsWithQuotaPreflight,
+  getProviderCredentials,
   markAccountUnavailable,
   extractApiKey,
   isValidApiKey,
@@ -361,13 +361,14 @@ export async function handleChat(
         return false;
       }
 
-      const creds = await getProviderCredentialsWithQuotaPreflight(
+      const creds = await getProviderCredentials(
         provider,
         null,
         allowedConnections,
         resolvedModel,
         {
           ...(target?.connectionId ? { forcedConnectionId: target.connectionId } : {}),
+          allowSuppressedConnections: isComboLiveTest,
         }
       );
       if (!creds || creds.allRateLimited) return false;
@@ -633,13 +634,12 @@ async function handleSingleModelChat(
     let lastCooldownMs = requestRetryLastCooldownMs;
 
     while (true) {
-      const credentials = await getProviderCredentialsWithQuotaPreflight(
+      const credentials = await getProviderCredentials(
         provider,
-        null,
+        excludedConnectionIds.size > 0 ? Array.from(excludedConnectionIds)[0] : null,
         effectiveAllowedConnections,
         model,
         {
-          excludeConnectionIds: Array.from(excludedConnectionIds),
           ...(forceLiveComboTest
             ? {
                 allowSuppressedConnections: true,
@@ -740,185 +740,9 @@ async function handleSingleModelChat(
           );
         }
       }
-<<<<<<< HEAD
-    }
-
-    // 6. Mark account as quota-exhausted on 429 response
-    // Web-session providers have resettable short-window quotas; caching them
-    // as "exhausted" for 5 minutes can outlive the actual reset window.
-    const hasResettableWebQuota =
-      provider === "chatgpt-web2api" ||
-      provider === "perplexity-web2api" ||
-      provider === "gemini-web2api" ||
-      provider === "claudew2a";
-    if (result.status === 429 && provider !== "gemini" && !hasResettableWebQuota) {
-      markAccountExhaustedFrom429(credentials.connectionId, provider);
-    }
-
-    // 7. Fallback to next account
-    const { shouldFallback } = await markAccountUnavailable(
-      credentials.connectionId,
-      result.status,
-      result.error,
-      provider,
-      model
-    );
-
-    if (shouldFallback) {
-      log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
-      excludeConnectionId = credentials.connectionId;
-      lastError = result.error;
-      lastStatus = result.status;
-      continue;
-    }
-
-    return result.response;
-  }
-}
-
-// ──── Pipeline gate checks ────
-
-/**
- * Resolve model string to provider/model info, or return an error response.
- */
-async function resolveModelOrError(modelStr: string, body: any, endpointPath: string = "") {
-  const modelInfo = await getModelInfo(modelStr);
-  if (!modelInfo.provider) {
-    if ((modelInfo as any).errorType === "ambiguous_model") {
-      const message =
-        (modelInfo as any).errorMessage ||
-        `Ambiguous model '${modelStr}'. Use provider/model prefix (ex: gh/${modelStr} or cc/${modelStr}).`;
-      log.warn("CHAT", message, {
-        model: modelStr,
-        candidates:
-          (modelInfo as any).candidateAliases || (modelInfo as any).candidateProviders || [],
-      });
-      return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, message) };
-    }
-    log.warn("CHAT", "Invalid model format", { model: modelStr });
-    return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format") };
-  }
-
-  const { provider, model, extendedContext } = modelInfo;
-  const sourceFormat = detectFormatFromEndpoint(body, endpointPath);
-  const providerAlias = PROVIDER_ID_TO_ALIAS[provider] || provider;
-
-  // If the custom model specifies apiFormat="responses", override targetFormat
-  // to route through the Responses API translator instead of Chat Completions
-  let targetFormat = getModelTargetFormat(providerAlias, model) || getTargetFormat(provider);
-  if ((modelInfo as any).apiFormat === "responses") {
-    targetFormat = "openai-responses";
-    log.info("ROUTING", `Custom model apiFormat=responses → targetFormat=openai-responses`);
-  }
-
-  const ctxTag = extendedContext && providerAlias === "claude" ? " [1m]" : "";
-  if (modelStr !== `${provider}/${model}`) {
-    log.info("ROUTING", `${modelStr} → ${provider}/${model}${ctxTag}`);
-  } else {
-    log.info("ROUTING", `Provider: ${provider}, Model: ${model}${ctxTag}`);
-  }
-
-  return { provider, model, sourceFormat, targetFormat, extendedContext };
-}
-
-/**
- * Check pipeline gates: model availability + circuit breaker state.
- * Returns an error Response if blocked, or null if OK to proceed.
- */
-function checkPipelineGates(
-  provider: string,
-  model: string,
-  options: { ignoreCircuitBreaker?: boolean; ignoreModelCooldown?: boolean } = {}
-) {
-  const modelAvailable = isModelAvailable(provider, model);
-  if (!modelAvailable && options.ignoreModelCooldown) {
-    log.info("AVAILABILITY", `${provider}/${model} cooldown bypassed for combo live test`);
-  } else if (!modelAvailable) {
-    log.warn("AVAILABILITY", `${provider}/${model} is in cooldown, rejecting request`);
-    return (unavailableResponse as any)(
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      `Model ${provider}/${model} is temporarily unavailable (cooldown)`,
-      30
-    );
-  }
-
-  const breaker = getCircuitBreaker(provider, {
-    failureThreshold: 5,
-    resetTimeout: 30000,
-    onStateChange: (name: string, from: string, to: string) =>
-      log.info("CIRCUIT", `${name}: ${from} → ${to}`),
-  });
-  if (options.ignoreCircuitBreaker && !breaker.canExecute()) {
-    log.info("CIRCUIT", `Bypassing OPEN circuit breaker for combo live test: ${provider}`);
-  } else if (!breaker.canExecute()) {
-    log.warn("CIRCUIT", `Circuit breaker OPEN for ${provider}, rejecting request`);
-    return (unavailableResponse as any)(
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      `Provider ${provider} circuit breaker is open`,
-      30
-    );
-  }
-
-  return null;
-}
-
-// ──── Chat execution with circuit breaker ────
-
-/**
- * Execute chat core wrapped in circuit breaker + optional TLS tracking.
- */
-async function executeChatWithBreaker({
-  bypassCircuitBreaker,
-  breaker,
-  body,
-  provider,
-  model,
-  refreshedCredentials,
-  proxyInfo,
-  log: logger,
-  clientRawRequest,
-  credentials,
-  apiKeyInfo,
-  userAgent,
-  comboName,
-  comboStrategy,
-  isCombo,
-  extendedContext,
-}: any): Promise<{ result: any; tlsFingerprintUsed: boolean }> {
-  let tlsFingerprintUsed = false;
-
-  try {
-    const chatFn = () =>
-      runWithProxyContext(proxyInfo?.proxy || null, () =>
-        (handleChatCore as any)({
-          body: { ...body, model: `${provider}/${model}` },
-          modelInfo: { provider, model, extendedContext },
-          credentials: refreshedCredentials,
-          log: logger,
-          clientRawRequest,
-          connectionId: credentials.connectionId,
-          apiKeyInfo,
-          userAgent,
-          comboName,
-          comboStrategy,
-          isCombo,
-          onCredentialsRefreshed: async (newCreds: any) => {
-            await updateProviderCredentials(credentials.connectionId, {
-              accessToken: newCreds.accessToken,
-              refreshToken: newCreds.refreshToken,
-              providerSpecificData: newCreds.providerSpecificData,
-              testStatus: "active",
-            });
-          },
-          onRequestSuccess: async () => {
-            await clearAccountError(credentials.connectionId, credentials);
-          },
-        })
-=======
       const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
       const storeEnabled = isOpenAIResponsesStoreEnabled(
         refreshedCredentials?.providerSpecificData ?? credentials?.providerSpecificData
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
       );
       if (provider === "codex" && storeEnabled && runtimeOptions.sessionId) {
         requestBody = ensureOpenAIStoreSessionFallback(requestBody, runtimeOptions.sessionId);
@@ -1105,3 +929,5 @@ async function executeChatWithBreaker({
     }
   }
 }
+
+

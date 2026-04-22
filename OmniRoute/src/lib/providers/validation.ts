@@ -214,12 +214,8 @@ async function validateOpenAILikeProvider({
 
   const modelsRes = await validationRead(modelsUrl, {
     method: "GET",
-<<<<<<< HEAD
-    headers: buildBearerHeaders(apiKey),
-    signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
     headers: buildBearerHeaders(apiKey, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+    signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
   });
 
   if (modelsRes.ok) {
@@ -359,14 +355,6 @@ async function validateGeminiLikeProvider({
     return { valid: false, error: "Missing base URL" };
   }
 
-<<<<<<< HEAD
-  const separator = baseUrl.includes("?") ? "&" : "?";
-  const response = await fetch(`${baseUrl}${separator}key=${encodeURIComponent(apiKey)}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-  });
-=======
   // Use the correct auth header based on provider config:
   // - gemini (API key): x-goog-api-key
   // - gemini-cli (OAuth): Bearer token
@@ -378,8 +366,11 @@ async function validateGeminiLikeProvider({
   }
   applyCustomUserAgent(headers, providerSpecificData);
 
-  const response = await validationRead(baseUrl, { method: "GET", headers });
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+  const response = await validationRead(baseUrl, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
+  });
 
   if (response.ok) {
     return { valid: true, error: null };
@@ -439,12 +430,8 @@ async function validateDeepgramProvider({ apiKey, providerSpecificData = {} }: a
   try {
     const response = await validationRead("https://api.deepgram.com/v1/auth/token", {
       method: "GET",
-<<<<<<< HEAD
-      headers: { Authorization: `Token ${apiKey}` },
-      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
       headers: applyCustomUserAgent({ Authorization: `Token ${apiKey}` }, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
     });
     if (response.ok) return { valid: true, error: null };
     if (response.status === 401 || response.status === 403) {
@@ -460,13 +447,6 @@ async function validateAssemblyAIProvider({ apiKey, providerSpecificData = {} }:
   try {
     const response = await validationRead("https://api.assemblyai.com/v2/transcript?limit=1", {
       method: "GET",
-<<<<<<< HEAD
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
       headers: applyCustomUserAgent(
         {
           Authorization: apiKey,
@@ -474,7 +454,7 @@ async function validateAssemblyAIProvider({ apiKey, providerSpecificData = {} }:
         },
         providerSpecificData
       ),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
     });
     if (response.ok) return { valid: true, error: null };
     if (response.status === 401 || response.status === 403) {
@@ -490,20 +470,6 @@ async function validateNanoBananaProvider({ apiKey, providerSpecificData = {} }:
   try {
     // NanoBanana doesn't expose a lightweight validation endpoint,
     // so we send a minimal generate request that will succeed or fail on auth.
-<<<<<<< HEAD
-    const response = await fetch("https://api.nanobananaapi.ai/api/v1/nanobanana/generate", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prompt: "test",
-        model: "nanobanana-flash",
-      }),
-      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-    });
-=======
     const response = await validationWrite(
       "https://api.nanobananaapi.ai/api/v1/nanobanana/generate",
       {
@@ -519,9 +485,9 @@ async function validateNanoBananaProvider({ apiKey, providerSpecificData = {} }:
           prompt: "test",
           model: "nanobanana-flash",
         }),
+        signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
       }
     );
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     // Auth errors → 401/403; anything else (even 400 bad request) means auth passed
     if (response.status === 401 || response.status === 403) {
       return { valid: false, error: "Invalid API key" };
@@ -537,13 +503,6 @@ async function validateElevenLabsProvider({ apiKey, providerSpecificData = {} }:
     // Lightweight auth check endpoint
     const response = await validationRead("https://api.elevenlabs.io/v1/voices", {
       method: "GET",
-<<<<<<< HEAD
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
       headers: applyCustomUserAgent(
         {
           "xi-api-key": apiKey,
@@ -551,7 +510,7 @@ async function validateElevenLabsProvider({ apiKey, providerSpecificData = {} }:
         },
         providerSpecificData
       ),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
     });
 
     if (response.ok) return { valid: true, error: null };
@@ -754,12 +713,8 @@ async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData =
   try {
     const modelsRes = await validationRead(`${baseUrl}/models`, {
       method: "GET",
-<<<<<<< HEAD
-      headers: buildBearerHeaders(apiKey),
-      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
       headers: buildBearerHeaders(apiKey, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+      signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
     });
 
     modelsReachable = true;

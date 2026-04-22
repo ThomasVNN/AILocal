@@ -45,9 +45,6 @@ async function exists(targetPath) {
   }
 }
 
-<<<<<<< HEAD
-function runNextBuild(extraArgs = []) {
-=======
 export async function movePath(sourcePath, destinationPath, fsImpl = fs) {
   const mkdir = typeof fsImpl.mkdir === "function" ? fsImpl.mkdir.bind(fsImpl) : fs.mkdir.bind(fs);
   await mkdir(path.dirname(destinationPath), { recursive: true });
@@ -72,8 +69,7 @@ export async function movePath(sourcePath, destinationPath, fsImpl = fs) {
   }
 }
 
-function runNextBuild() {
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+function runNextBuild(extraArgs = []) {
   return new Promise((resolve) => {
     const nextBin = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");
     const child = spawn(process.execPath, [nextBin, "build", ...extraArgs], {
@@ -101,20 +97,6 @@ function runNextBuild() {
   });
 }
 
-<<<<<<< HEAD
-async function main() {
-  let moved = false;
-  const nextArgs = process.argv.slice(2).filter(Boolean);
-
-  try {
-    if (await exists(legacyAppDir)) {
-      await fs.cp(legacyAppDir, backupDir, { recursive: true });
-      await fs.rm(legacyAppDir, { recursive: true, force: true });
-      moved = true;
-    }
-
-    const result = await runNextBuild(nextArgs);
-=======
 export function resolveNextBuildEnv(baseEnv = process.env) {
   return {
     ...baseEnv,
@@ -148,6 +130,7 @@ export async function pruneStandaloneArtifacts(rootDir = projectRoot, fsImpl = f
 export async function main() {
   const movedPaths = [];
   const transientBuildPaths = getTransientBuildPaths();
+  const nextArgs = process.argv.slice(2).filter(Boolean);
 
   try {
     for (const entry of transientBuildPaths) {
@@ -158,7 +141,7 @@ export async function main() {
 
     await resetStandaloneOutput(projectRoot);
 
-    const result = await runNextBuild();
+    const result = await runNextBuild(nextArgs);
     if (result.code === 0 && (await exists(path.join(projectRoot, ".next", "standalone")))) {
       console.log("[build-next-isolated] Copying static assets for standalone server...");
       try {
@@ -185,7 +168,6 @@ export async function main() {
         );
       }
     }
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     process.exitCode = result.code;
   } catch (error) {
     console.error("[build-next-isolated] Build failed:", error);
@@ -195,12 +177,7 @@ export async function main() {
       const entry = movedPaths.pop();
       if (!entry) continue;
       try {
-<<<<<<< HEAD
-        await fs.cp(backupDir, legacyAppDir, { recursive: true });
-        await fs.rm(backupDir, { recursive: true, force: true });
-=======
         await movePath(entry.backupPath, entry.sourcePath);
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
       } catch (restoreError) {
         console.error(
           `[build-next-isolated] Failed to restore ${entry.label} from ${entry.backupPath}:`,

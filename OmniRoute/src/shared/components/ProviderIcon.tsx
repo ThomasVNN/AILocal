@@ -32,15 +32,12 @@ const LOBEHUB_PROVIDER_MAP: Record<string, string> = {
   codestral: "mistral",
   cohere: "cohere",
   perplexity: "perplexity",
-<<<<<<< HEAD
   "perplexity-web2api": "perplexity",
   "chatgpt-web2api": "openai",
   claudew2a: "anthropic",
   "gemini-web2api": "google",
-=======
   "perplexity-search": "perplexity",
   "perplexity-web": "perplexity",
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   xai: "xai",
   grok: "xai",
   "grok-web": "xai",

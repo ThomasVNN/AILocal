@@ -14,7 +14,6 @@ import {
 } from "@/shared/network/safeOutboundFetch";
 import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuard";
 import { getStaticQoderModels } from "@omniroute/open-sse/services/qoderCli.ts";
-<<<<<<< HEAD
 import {
   discoverPerplexityWebModels,
   getPerplexityWeb2ApiFallbackModels,
@@ -23,7 +22,6 @@ import {
   discoverChatgptWebModels,
   getChatgptWeb2ApiFallbackModels,
 } from "@omniroute/open-sse/utils/chatgptWebModels.ts";
-=======
 import { getAntigravityHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { getAntigravityModelsDiscoveryUrls } from "@omniroute/open-sse/config/antigravityUpstream.ts";
 import { getGlmModelsUrl } from "@omniroute/open-sse/config/glmProvider.ts";
@@ -34,7 +32,6 @@ import {
   getClientVisibleAntigravityModelName,
   toClientAntigravityModelId,
 } from "@omniroute/open-sse/config/antigravityModelAliases.ts";
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 type JsonRecord = Record<string, unknown>;
 
@@ -708,11 +705,36 @@ export async function GET(
       }
     }
 
-<<<<<<< HEAD
     if (provider === "perplexity-web2api") {
       const token = accessToken || apiKey;
       const discovery = await discoverPerplexityWebModels(token);
-=======
+
+      return buildResponse({
+        provider,
+        connectionId,
+        models: discovery.models,
+        source: discovery.source,
+        confidence: discovery.confidence,
+        ...(discovery.warning ? { warning: discovery.warning } : {}),
+      });
+    }
+
+    if (provider === "chatgpt-web2api") {
+      const discovery = await discoverChatgptWebModels({
+        accessToken: accessToken || apiKey,
+        cookieString: typeof connection.refreshToken === "string" ? connection.refreshToken : null,
+      });
+
+      return buildResponse({
+        provider,
+        connectionId,
+        models: discovery.models,
+        source: discovery.source,
+        confidence: discovery.confidence,
+        ...(discovery.warning ? { warning: discovery.warning } : {}),
+      });
+    }
+
     if (provider === "antigravity") {
       const staticModels = STATIC_MODEL_PROVIDERS.antigravity();
       const discoveryUrls = getAntigravityModelsDiscoveryUrls();
@@ -764,37 +786,13 @@ export async function GET(
           console.warn(`[models] antigravity discovery threw for ${discoveryUrl}: ${message}`);
         }
       }
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
       return buildResponse({
         provider,
         connectionId,
-<<<<<<< HEAD
-        models: discovery.models,
-        source: discovery.source,
-        confidence: discovery.confidence,
-        ...(discovery.warning ? { warning: discovery.warning } : {}),
-      });
-    }
-
-    if (provider === "chatgpt-web2api") {
-      const discovery = await discoverChatgptWebModels({
-        accessToken: accessToken || apiKey,
-        cookieString: typeof connection.refreshToken === "string" ? connection.refreshToken : null,
-      });
-
-      return buildResponse({
-        provider,
-        connectionId,
-        models: discovery.models,
-        source: discovery.source,
-        confidence: discovery.confidence,
-        ...(discovery.warning ? { warning: discovery.warning } : {}),
-=======
         models: staticModels,
         source: "local_catalog",
         warning: "API unavailable — using cached catalog",
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
       });
     }
 

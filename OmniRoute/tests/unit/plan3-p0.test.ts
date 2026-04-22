@@ -90,7 +90,6 @@ test("DefaultExecutor uses x-api-key for kimi-coding-apikey", () => {
   assert.equal(headers.Authorization, undefined);
 });
 
-<<<<<<< HEAD:tests/unit/plan3-p0.test.mjs
 test("DefaultExecutor keeps official Gemini on x-goog-api-key auth", () => {
   const executor = new DefaultExecutor("gemini");
   const headers = executor.buildHeaders({ apiKey: "AIzaOfficialGeminiKey123" }, true);
@@ -119,7 +118,8 @@ test("DefaultExecutor keeps Gemini Web2API on Authorization/cookie auth", () => 
   assert.equal(headers["x-goog-api-key"], undefined);
   assert.match(headers.Authorization || "", /^SAPISIDHASH \d+_[0-9a-f]{40}$/i);
   assert.equal(headers.Cookie, "SAPISID=CookieValue123");
-=======
+});
+
 test("DefaultExecutor execute honors connection-level custom User-Agent", async () => {
   const executor = new DefaultExecutor("openai");
   const originalFetch = globalThis.fetch;
@@ -152,7 +152,6 @@ test("DefaultExecutor execute honors connection-level custom User-Agent", async 
   assert.ok(capturedHeaders);
   assert.equal(capturedHeaders.Authorization, "Bearer sk-openai-test");
   assert.equal(capturedHeaders["User-Agent"], "OmniRouteCustomUA/2.0");
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd:tests/unit/plan3-p0.test.ts
 });
 
 test("CodexExecutor forces stream=true for upstream compatibility", () => {

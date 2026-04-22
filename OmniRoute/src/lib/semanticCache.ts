@@ -394,14 +394,9 @@ export function getCacheStats() {
 }
 
 /**
-<<<<<<< HEAD
- * Check if a request is cacheable.
- * Only non-streaming, deterministic (temperature=0) requests below max payload size.
-=======
  * Check if a request is cacheable for read (pre-request lookup).
- * Only non-streaming, deterministic (temperature=0) requests.
+ * Only non-streaming, deterministic (temperature=0) requests below max payload size.
  * @deprecated Use isCacheableForRead instead.
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
  */
 export function isCacheable(body, headers) {
   if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {

@@ -1,21 +1,4 @@
-<<<<<<< HEAD
-import pkg from "../../../package.json" with { type: "json" };
-
-// App configuration
-export const APP_CONFIG = {
-  name: "AIAgentGateway",
-  description: "AI Gateway for Multi-Provider LLMs",
-  version: pkg.version,
-};
-
-// Theme configuration
-export const THEME_CONFIG = {
-  storageKey: "theme",
-  defaultTheme: "system", // "light" | "dark" | "system"
-};
-=======
 export { APP_CONFIG, THEME_CONFIG } from "./appConfig";
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 // Subscription
 export const SUBSCRIPTION_CONFIG = {
