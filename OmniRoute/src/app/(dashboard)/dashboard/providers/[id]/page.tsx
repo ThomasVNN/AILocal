@@ -1092,10 +1092,14 @@ export default function ProviderDetailPage() {
     }
   };
 
+  const closeOAuthModal = useCallback(() => {
+    setShowOAuthModal(false);
+  }, []);
+
   const handleOAuthSuccess = useCallback(() => {
     fetchConnections();
-    setShowOAuthModal(false);
-  }, [fetchConnections]);
+    closeOAuthModal();
+  }, [fetchConnections, closeOAuthModal]);
 
   const openPrimaryAddFlow = useCallback(() => {
     if (isOAuth) {
@@ -2600,62 +2604,44 @@ export default function ProviderDetailPage() {
           isOpen={showOAuthModal}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "claude" ? (
         <ClaudeCodeOAuthWrapper
           isOpen={showOAuthModal}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "cursor" ? (
         <CursorAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "perplexity-web2api" ? (
         <PerplexityWeb2ApiAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "chatgpt-web2api" ? (
         <ChatgptWeb2ApiAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "claudew2a" ? (
         <ClaudeWeb2ApiAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "gemini-web2api" ? (
         <GeminiWeb2ApiAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            userDismissed.current = true;
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       ) : (
         <OAuthModal
@@ -2663,9 +2649,7 @@ export default function ProviderDetailPage() {
           provider={providerId}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => {
-            setShowOAuthModal(false);
-          }}
+          onClose={closeOAuthModal}
         />
       )}
       <AddApiKeyModal
