@@ -512,6 +512,47 @@ export async function removeCustomModel(providerId: string, modelId: string) {
   return true;
 }
 
+export async function removeAutoSyncedCustomModels(providerId: string) {
+  const db = getDbInstance();
+  const row = db
+    .prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?")
+    .get(providerId);
+  if (!row) return [];
+
+  const value = getKeyValue(row).value;
+  if (!value) return [];
+
+  const models = JSON.parse(value);
+  if (!Array.isArray(models)) return [];
+
+  const filtered = models.filter((model: unknown) => {
+    if (!model || typeof model !== "object" || Array.isArray(model)) return true;
+    const source =
+      typeof (model as JsonRecord).source === "string"
+        ? String((model as JsonRecord).source).trim().toLowerCase()
+        : null;
+    return source !== "auto-sync";
+  });
+
+  if (filtered.length === models.length) {
+    return filtered;
+  }
+
+  if (filtered.length === 0) {
+    db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(
+      providerId
+    );
+  } else {
+    db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(
+      JSON.stringify(filtered),
+      providerId
+    );
+  }
+
+  backupDbFile("pre-write");
+  return filtered;
+}
+
 // ──────────────── Synced Available Models ────────────────
 // Storage: namespace = 'syncedAvailableModels', key = '<providerId>:<connectionId>'
 // Each connection stores its own model list. Reads union across all connections

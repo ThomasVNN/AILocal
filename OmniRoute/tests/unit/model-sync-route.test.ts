@@ -588,3 +588,61 @@ test("model sync route returns 500 and records a failure when the internal model
   assert.equal(logs[0].status, 500);
   assert.equal(logs[0].provider, "openrouter");
 });
+
+test("model sync route keeps curated web2api providers on the LocalAgent catalog and prunes stale auto-sync models", async () => {
+  await resetStorage();
+
+  const connection = await providersDb.createProviderConnection({
+    provider: "perplexity-web2api",
+    authType: "oauth",
+    name: "Perplexity Web",
+    accessToken: "cookie-value",
+  });
+
+  await modelsDb.addCustomModel("perplexity-web2api", "manual-model", "Manual Model");
+  const db = core.getDbInstance();
+  db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(
+    JSON.stringify([
+      {
+        id: "manual-model",
+        name: "Manual Model",
+        source: "manual",
+      },
+      {
+        id: "turbo",
+        name: "Turbo",
+        source: "auto-sync",
+      },
+    ]),
+    "perplexity-web2api"
+  );
+
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), `http://localhost/api/providers/${connection.id}/models`);
+    return Response.json({
+      models: [
+        { id: "turbo", name: "Turbo" },
+        { id: "pplx_pro", name: "Perplexity Pro" },
+      ],
+    });
+  };
+
+  const response = await modelSyncRoute.POST(
+    new Request(`http://localhost/api/providers/${connection.id}/sync-models`, {
+      method: "POST",
+      headers: scheduler.buildModelSyncInternalHeaders(),
+    }),
+    { params: { id: connection.id } }
+  );
+  const body = await response.json();
+  const remainingModels = await modelsDb.getCustomModels("perplexity-web2api");
+
+  assert.equal(response.status, 200);
+  assert.equal(body.skippedCatalogPersistence, true);
+  assert.equal(body.discoveredModels, 2);
+  assert.deepEqual(
+    remainingModels.map((model) => model.id),
+    ["manual-model"]
+  );
+  assert.deepEqual(body.modelChanges, { added: 0, removed: 1, updated: 0, total: 1 });
+});

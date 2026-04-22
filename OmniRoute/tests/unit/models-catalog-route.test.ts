@@ -521,6 +521,44 @@ test("v1 models catalog exposes provider-prefixed custom models, filters by raw 
   assert.equal(providerAlias.parent, "cl/demo-custom");
 });
 
+test("v1 models catalog ignores auto-sync custom rows for curated web2api providers but keeps manual custom models", async () => {
+  await seedConnection("perplexity-web2api", {
+    authType: "oauth",
+    name: "pplx-curated",
+    apiKey: null,
+    accessToken: "cookie-value",
+  });
+
+  const db = core.getDbInstance();
+  db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('customModels', ?, ?)").run(
+    "perplexity-web2api",
+    JSON.stringify([
+      {
+        id: "turbo",
+        name: "Turbo",
+        source: "auto-sync",
+      },
+      {
+        id: "manual-analyst",
+        name: "Manual Analyst",
+        source: "manual",
+      },
+    ])
+  );
+
+  const response = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models")
+  );
+  const body = await response.json();
+  const ids = new Set(body.data.map((item) => item.id));
+
+  assert.equal(response.status, 200);
+  assert.equal(ids.has("perplexity-web2api/turbo"), false);
+  assert.equal(ids.has("perplexity-web2api/manual-analyst"), true);
+  assert.equal(ids.has("perplexity-web2api/default"), true);
+  assert.equal(ids.has("perplexity-web2api/gpt-4o"), true);
+});
+
 test("v1 models catalog returns 500 when model compatibility lookup crashes", async () => {
   await seedConnection("openai", { name: "openai-compat-crash" });
 

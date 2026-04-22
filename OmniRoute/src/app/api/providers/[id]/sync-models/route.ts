@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/models";
 import {
   getCustomModels,
+  removeAutoSyncedCustomModels,
   replaceCustomModels,
   replaceSyncedAvailableModelsForConnection,
 } from "@/lib/db/models";
@@ -113,6 +114,13 @@ function getModelSyncChannelLabel(connection: unknown) {
   );
 }
 
+const CURATED_WEB2API_CATALOG_PROVIDERS = new Set([
+  "perplexity-web2api",
+  "chatgpt-web2api",
+  "claudew2a",
+  "gemini-web2api",
+]);
+
 /**
  * POST /api/providers/[id]/sync-models
  *
@@ -217,11 +225,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .filter((m: any) => m.id && !registryIds.has(m.id));
 
     const previousModels = await getCustomModels(logProvider);
+    const previousModelList = Array.isArray(previousModels) ? previousModels : [];
+    const usesCuratedCatalog = CURATED_WEB2API_CATALOG_PROVIDERS.has(logProvider);
+    let skippedCatalogPersistence = false;
     const replaced = shouldSkipDestructiveSync
-      ? Array.isArray(previousModels)
-        ? previousModels
-        : []
-      : await replaceCustomModels(logProvider, models);
+      ? previousModelList
+      : usesCuratedCatalog
+        ? ((skippedCatalogPersistence = true),
+          await removeAutoSyncedCustomModels(logProvider))
+        : await replaceCustomModels(logProvider, models);
 
     // For Gemini: also write to syncedAvailableModels (unioned across API keys)
     if (logProvider === "gemini") {
@@ -280,8 +292,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ok: true,
       provider: logProvider,
       syncedModels: replaced.length,
+      discoveredModels: models.length,
       syncedAliases,
       modelChanges,
+      ...(skippedCatalogPersistence
+        ? {
+            skippedCatalogPersistence: true,
+            warning:
+              "Provider uses the curated LocalAgent catalog, so discovered Web2API models are not persisted into /v1/models.",
+          }
+        : {}),
       ...(shouldSkipDestructiveSync
         ? {
             skippedSync: true,

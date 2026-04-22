@@ -103,6 +103,29 @@ function getVisionCapabilityFields(modelId: string) {
   };
 }
 
+function mergeDiscoveredProviderModels<
+  T extends {
+    id: string;
+    name?: string;
+    contextLength?: number;
+  },
+>(baseModels: T[], discoveredModels?: Array<Partial<T> & { id: string }>) {
+  if (!Array.isArray(discoveredModels) || discoveredModels.length === 0) {
+    return baseModels;
+  }
+
+  const discoveredById = new Map(
+    discoveredModels
+      .filter((model): model is Partial<T> & { id: string } => !!model?.id)
+      .map((model) => [model.id, model])
+  );
+
+  return baseModels.map((model) => {
+    const discovered = discoveredById.get(model.id);
+    return discovered ? { ...model, ...discovered, id: model.id } : model;
+  });
+}
+
 function buildAliasMaps() {
   const aliasToProviderId: Record<string, string> = {};
   const providerIdToAlias: Record<string, string> = {};
@@ -368,9 +391,15 @@ export async function getUnifiedModelsResponse(
       const defaultContextLength = registryEntry?.defaultContextLength;
       const effectiveModels =
         canonicalProviderId === "perplexity-web2api"
-          ? dynamicProviderModels.get("perplexity-web2api") || providerModels
+          ? mergeDiscoveredProviderModels(
+              providerModels,
+              dynamicProviderModels.get("perplexity-web2api")
+            )
           : canonicalProviderId === "chatgpt-web2api"
-            ? dynamicProviderModels.get("chatgpt-web2api") || providerModels
+            ? mergeDiscoveredProviderModels(
+                providerModels,
+                dynamicProviderModels.get("chatgpt-web2api")
+              )
             : providerModels;
 
       for (const model of effectiveModels) {
@@ -615,8 +644,16 @@ export async function getUnifiedModelsResponse(
 
         for (const model of providerCustomModels) {
           const modelId = typeof model.id === "string" ? model.id : null;
+          const modelSource =
+            typeof model.source === "string" ? model.source.trim().toLowerCase() : null;
           if (!modelId) continue;
           if (model.isHidden === true) continue;
+          if (
+            PROVIDER_ID_ONLY_CATALOG_PROVIDERS.has(canonicalProviderId) &&
+            modelSource === "auto-sync"
+          ) {
+            continue;
+          }
           if (
             !hasEligibleConnectionForModel(
               getConnectionsForProvider(alias, canonicalProviderId, providerId, parentProviderType),

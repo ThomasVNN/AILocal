@@ -132,6 +132,42 @@ test("replaceCustomModels preserves compat fields and respects the empty-list gu
   assert.deepEqual(await modelsDb.getCustomModels("openai"), []);
 });
 
+test("removeAutoSyncedCustomModels prunes only explicit auto-sync entries", async () => {
+  await modelsDb.addCustomModel("perplexity-web2api", "manual-model", "Manual Model");
+
+  const db = core.getDbInstance();
+  db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(
+    JSON.stringify([
+      {
+        id: "manual-model",
+        name: "Manual Model",
+        source: "manual",
+      },
+      {
+        id: "auto-sync-model",
+        name: "Auto Sync Model",
+        source: "auto-sync",
+      },
+      {
+        id: "legacy-model",
+        name: "Legacy Model",
+      },
+    ]),
+    "perplexity-web2api"
+  );
+
+  const filtered = await modelsDb.removeAutoSyncedCustomModels("perplexity-web2api");
+
+  assert.deepEqual(
+    filtered.map((model) => model.id).sort(),
+    ["legacy-model", "manual-model"]
+  );
+  assert.deepEqual(
+    (await modelsDb.getCustomModels("perplexity-web2api")).map((model) => model.id).sort(),
+    ["legacy-model", "manual-model"]
+  );
+});
+
 test("removing a custom model also removes its compat override", async () => {
   await modelsDb.addCustomModel("anthropic", "claude-3-haiku", "Claude 3 Haiku");
   modelsDb.mergeModelCompatOverride("anthropic", "claude-3-haiku", {
