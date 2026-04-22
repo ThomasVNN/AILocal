@@ -1449,7 +1449,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
       };
     },
     // Claude Web2API - validates imported claude.ai browser request headers/cookies
-    "claudew2a": async ({ apiKey, providerSpecificData }: any) => {
+    claudew2a: async ({ apiKey, providerSpecificData }: any) => {
       const result = await validateClaudeWebSession(apiKey, {
         organizationUuid: providerSpecificData?.organizationUuid,
         requestHeaders: providerSpecificData?.requestHeaders,

@@ -566,7 +566,6 @@ function ensureCallLogsColumns(db: SqliteDatabase) {
   }
 }
 
-
 function toNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -1105,7 +1104,6 @@ export function runManagedDbHealthCheck(options?: { autoRepair?: boolean }) {
     createBackupBeforeRepair: () => createHealthCheckBackup(db),
   });
 }
-
 
 export function getDbInstance(): SqliteDatabase {
   const existing = getDb();

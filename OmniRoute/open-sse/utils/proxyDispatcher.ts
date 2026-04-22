@@ -74,13 +74,16 @@ export function getDefaultDispatcher(): Dispatcher {
  */
 function extractExplicitPort(urlStr: string): string | null {
   try {
-    const idx = urlStr.indexOf('://');
+    const idx = urlStr.indexOf("://");
     if (idx === -1) return null;
     const authorityStart = idx + 3;
-    const authorityEnd = urlStr.indexOf('/', authorityStart);
-    const authority = authorityEnd === -1 ? urlStr.slice(authorityStart) : urlStr.slice(authorityStart, authorityEnd);
-    const lastColon = authority.lastIndexOf(':');
-    const atSign = authority.lastIndexOf('@');
+    const authorityEnd = urlStr.indexOf("/", authorityStart);
+    const authority =
+      authorityEnd === -1
+        ? urlStr.slice(authorityStart)
+        : urlStr.slice(authorityStart, authorityEnd);
+    const lastColon = authority.lastIndexOf(":");
+    const atSign = authority.lastIndexOf("@");
     if (lastColon !== -1 && lastColon > atSign) {
       const portStr = authority.slice(lastColon + 1);
       if (/^\d+$/.test(portStr)) {

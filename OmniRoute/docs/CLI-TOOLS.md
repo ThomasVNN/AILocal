@@ -42,18 +42,11 @@ Current list (v3.0.0-rc.16):
 | **Cline**          | `cline`       | `cline`    | custom     | npm            |
 | **Kilo Code**      | `kilo`        | `kilocode` | custom     | npm            |
 | **Continue**       | `continue`    | extension  | guide      | VS Code        |
-<<<<<<< HEAD
 | **Antigravity**    | `antigravity` | app        | guide      | desktop app    |
 | **GitHub Copilot** | `copilot`     | extension  | custom     | VS Code        |
 | **OpenCode**       | `opencode`    | `opencode` | guide      | npm            |
 | **Kiro AI**        | `kiro`        | app/cli    | guide      | desktop/CLI    |
-=======
-| **Antigravity**    | `antigravity` | internal   | mitm       | OmniRoute      |
-| **GitHub Copilot** | `copilot`     | extension  | custom     | VS Code        |
-| **OpenCode**       | `opencode`    | `opencode` | guide      | npm            |
-| **Kiro AI**        | `kiro`        | app/cli    | mitm       | desktop/CLI    |
 | **Qwen Code**      | `qwen`        | `qwen`     | custom     | npm            |
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 ### CLI fingerprint sync (Agents + Settings)
 
@@ -261,7 +254,6 @@ kiro-cli status
 
 ---
 
-<<<<<<< HEAD
 ### Antigravity (Direct OpenAI-Compatible Provider)
 
 Do not use MITM, host-file interception, or certificate injection for Antigravity.
@@ -284,7 +276,7 @@ curl -sk \
 See `docs/ANTIGRAVITY_DIRECT_ROUTING.md` for the LocalAgent Docker/TLS checklist.
 
 ---
-=======
+
 ### Qwen Code (Alibaba)
 
 Qwen Code supports OpenAI-compatible API endpoints via environment variables or `settings.json`.
@@ -333,7 +325,6 @@ qwen
 > For a **remote server** replace `localhost:20128` with the server IP or domain.
 
 **Test:** `qwen "say hello"`
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 ### Cursor (Desktop App)
 

@@ -50,8 +50,7 @@ type ClaudeWebValidationResult =
       cookieNames: string[];
     };
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const CLAUDE_WEB_ALLOWED_HEADER_NAMES = new Set([
   "anthropic-anonymous-id",
@@ -210,9 +209,7 @@ function parseCapturedHeaders(raw: string) {
     const line = rawLine.trim();
     if (!line) continue;
 
-    const curlHeaderMatches = line.matchAll(
-      /(?:-H|--header)\s+\$?(?:"([^"]+)"|'([^']+)')/g
-    );
+    const curlHeaderMatches = line.matchAll(/(?:-H|--header)\s+\$?(?:"([^"]+)"|'([^']+)')/g);
     for (const match of curlHeaderMatches) {
       const headerLine = match[1] || match[2] || "";
       const idx = headerLine.indexOf(":");
@@ -365,7 +362,12 @@ export function normalizeClaudeWebSessionInput(
     };
   }
 
-  const organizationUuid = extractOrganizationUuid(raw, cookies, options, parsedHeaders.headerValues);
+  const organizationUuid = extractOrganizationUuid(
+    raw,
+    cookies,
+    options,
+    parsedHeaders.headerValues
+  );
   if (!organizationUuid) {
     return {
       valid: false,
@@ -649,7 +651,9 @@ function buildClaudeWebSessionError(statusCode: number | null, responseBody: str
   }
   return {
     errorCode: "session_invalid",
-    error: statusCode ? `Claude Web session check returned ${statusCode}` : "Session validation failed",
+    error: statusCode
+      ? `Claude Web session check returned ${statusCode}`
+      : "Session validation failed",
   };
 }
 

@@ -39,7 +39,6 @@ COPY package*.json ./
 COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
 COPY scripts/postinstallSupport.mjs ./scripts/postinstallSupport.mjs
 COPY scripts/native-binary-compat.mjs ./scripts/native-binary-compat.mjs
-<<<<<<< HEAD
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi \
   && case "$TARGETARCH" in \
     amd64) css_pkg="lightningcss-linux-x64-gnu" ;; \
@@ -47,10 +46,6 @@ RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm inst
     *) css_pkg="lightningcss-linux-x64-gnu" ;; \
   esac \
   && npm install --no-save --no-audit --no-fund "$css_pkg"
-=======
-COPY scripts/postinstallSupport.mjs ./scripts/postinstallSupport.mjs
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 COPY . ./
 RUN mkdir -p /app/data && npm run build -- --webpack

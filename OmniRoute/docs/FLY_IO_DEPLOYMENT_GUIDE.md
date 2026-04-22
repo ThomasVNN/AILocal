@@ -162,20 +162,20 @@ flyctl deploy
 
 建议放入 Fly Secrets：
 
-| 变量名 | 是否推荐 | 说明 |
-| --- | --- | --- |
-| `API_KEY_SECRET` | 必需 | API Key 生成与校验使用 |
-| `JWT_SECRET` | 必需 | 登录态和 JWT 签名使用 |
-| `STORAGE_ENCRYPTION_KEY` | 强烈推荐 | 加密存储敏感连接信息 |
-| `MACHINE_ID_SALT` | 推荐 | 生成稳定机器标识 |
-| `INITIAL_PASSWORD` | 可选 | 首次部署时直接指定后台初始密码 |
-| OAuth/API 私密凭证 | 按需 | 各类外部平台鉴权配置 |
+| 变量名                   | 是否推荐 | 说明                           |
+| ------------------------ | -------- | ------------------------------ |
+| `API_KEY_SECRET`         | 必需     | API Key 生成与校验使用         |
+| `JWT_SECRET`             | 必需     | 登录态和 JWT 签名使用          |
+| `STORAGE_ENCRYPTION_KEY` | 强烈推荐 | 加密存储敏感连接信息           |
+| `MACHINE_ID_SALT`        | 推荐     | 生成稳定机器标识               |
+| `INITIAL_PASSWORD`       | 可选     | 首次部署时直接指定后台初始密码 |
+| OAuth/API 私密凭证       | 按需     | 各类外部平台鉴权配置           |
 
 ### 6.2 当前项目推荐值
 
-| 变量名 | 推荐值 |
-| --- | --- |
-| `DATA_DIR` | `/data` |
+| 变量名                 | 推荐值                      |
+| ---------------------- | --------------------------- |
+| `DATA_DIR`             | `/data`                     |
 | `NEXT_PUBLIC_BASE_URL` | `https://omniroute.fly.dev` |
 
 说明：

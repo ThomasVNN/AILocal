@@ -109,9 +109,21 @@ export const EMBEDDING_PROVIDERS: Record<string, EmbeddingProvider> = {
     authType: "apikey",
     authHeader: "bearer",
     models: [
-      { id: "openai/text-embedding-3-small", name: "Text Embedding 3 Small (OpenRouter)", dimensions: 1536 },
-      { id: "openai/text-embedding-3-large", name: "Text Embedding 3 Large (OpenRouter)", dimensions: 3072 },
-      { id: "openai/text-embedding-ada-002", name: "Text Embedding Ada 002 (OpenRouter)", dimensions: 1536 },
+      {
+        id: "openai/text-embedding-3-small",
+        name: "Text Embedding 3 Small (OpenRouter)",
+        dimensions: 1536,
+      },
+      {
+        id: "openai/text-embedding-3-large",
+        name: "Text Embedding 3 Large (OpenRouter)",
+        dimensions: 3072,
+      },
+      {
+        id: "openai/text-embedding-ada-002",
+        name: "Text Embedding Ada 002 (OpenRouter)",
+        dimensions: 1536,
+      },
     ],
   },
 

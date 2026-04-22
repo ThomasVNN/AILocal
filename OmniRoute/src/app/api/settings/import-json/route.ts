@@ -44,7 +44,9 @@ export async function POST(request: Request) {
       data = JSON.parse(rawText) as LegacyJsonData;
     } catch {
       return NextResponse.json(
-        { error: "Invalid JSON: the file could not be parsed. Please upload a valid .json backup." },
+        {
+          error: "Invalid JSON: the file could not be parsed. Please upload a valid .json backup.",
+        },
         { status: 400 }
       );
     }

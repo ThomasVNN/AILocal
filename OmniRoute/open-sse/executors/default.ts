@@ -71,7 +71,10 @@ function normalizeGigachatChatUrl(baseUrl) {
 function resolveClaudeWebSession(credentials) {
   const psd = credentials?.providerSpecificData || {};
   const rawSessionInput =
-    psd.cookieString || credentials?.refreshToken || credentials?.accessToken || credentials?.apiKey;
+    psd.cookieString ||
+    credentials?.refreshToken ||
+    credentials?.accessToken ||
+    credentials?.apiKey;
   const normalized = normalizeClaudeWebSessionInput(rawSessionInput, {
     organizationUuid: psd.organizationUuid,
     requestHeaders: psd.requestHeaders,
