@@ -6,6 +6,7 @@ const {
   normalizeChatgptCookieString,
   validateChatgptSessionCookie,
   validateChatgptSessionPayload,
+  validateChatgptImportedSessionPayload,
   validateChatgptAccessToken,
 } = await import("../../open-sse/utils/chatgptSession.ts");
 
@@ -114,6 +115,44 @@ test("validateChatgptSessionPayload derives account context from access token cl
   assert.equal(result.valid, true);
   assert.equal(result.accountId, "acct_claim_1");
   assert.equal(result.planType, "go");
+});
+
+test("validateChatgptImportedSessionPayload falls back to bearer-only mode when session cookie is stale", async () => {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ limit: 42 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const payload = {
+    user: { id: "user_stale", email: "stale@example.com", name: "Stale User" },
+    accessToken: "header.payload.signature",
+    sessionToken: "session-token-123",
+    account: { id: "acct_stale", planType: "go" },
+  };
+
+  const result = await validateChatgptImportedSessionPayload(payload, {
+    allowBareSessionToken: true,
+    fetchImpl,
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.cookieString, "");
+  assert.deepEqual(result.cookieNames, []);
+  assert.equal(result.session.email, "stale@example.com");
+  assert.equal(result.accountId, "acct_stale");
+  assert.equal(result.planType, "go");
+  assert.equal(calls, 2);
 });
 
 test("validateChatgptAccessToken does not reject non-JWT token format before upstream check", async () => {

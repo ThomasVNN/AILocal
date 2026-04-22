@@ -3,7 +3,7 @@ import { validatePerplexitySessionCookie } from "@omniroute/open-sse/utils/perpl
 import {
   validateChatgptAccessToken,
   validateChatgptSessionCookie,
-  validateChatgptSessionPayload,
+  validateChatgptImportedSessionPayload,
 } from "@omniroute/open-sse/utils/chatgptSession.ts";
 import { validateClaudeWebSession } from "@omniroute/open-sse/utils/claudeWebSession.ts";
 import { validateGeminiWebSession } from "@omniroute/open-sse/utils/geminiWebSession.ts";
@@ -836,8 +836,9 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
         null;
 
       const result = sessionPayload
-        ? await validateChatgptSessionPayload(sessionPayload, {
+        ? await validateChatgptImportedSessionPayload(sessionPayload, {
             allowBareSessionToken: true,
+            signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
           })
         : await (async () => {
             const cookieString =

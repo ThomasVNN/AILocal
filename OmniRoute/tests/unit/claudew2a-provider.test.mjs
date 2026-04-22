@@ -15,8 +15,10 @@ const CAPTURED_HEADERS = `
 :scheme: https
 :path: /api/organizations/b9c40d67-408a-453a-827b-b3dbec951661/chat_conversations/de8c7dc4-7b25-4ffd-9830-36cea8cff187/completion
 accept: text/event-stream
+accept-language: en-US,en;q=0.9
 anthropic-anonymous-id: claudeai.v1.test-anonymous
 anthropic-client-app: com.anthropic.claudefordesktop
+anthropic-client-feature: ccr
 anthropic-client-version: 1.3561.0
 anthropic-device-id: 49991d10-6725-4600-800a-3ca5168b4c6f
 cookie: anthropic-device-id=49991d10-6725-4600-800a-3ca5168b4c6f
@@ -24,6 +26,14 @@ cookie: sessionKey=sk-ant-sid02-test
 cookie: lastActiveOrg=b9c40d67-408a-453a-827b-b3dbec951661
 cookie: cf_clearance=test-clearance
 referer: https://claude.ai/new
+sec-ch-ua: "Not-A.Brand";v="24", "Chromium";v="146"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "macOS"
+sec-fetch-dest: empty
+sec-fetch-mode: cors
+sec-fetch-site: same-origin
+traceparent: 00-0000000000000000d4d17183303d12c2-3542a3233f09af1e-01
+tracestate: dd=s:1;o:rum
 user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Claude/1.3561.0
 x-activity-session-id: 46995d50-c365-4c0a-b359-f6ef19b3875c
 `;
@@ -65,6 +75,15 @@ test("normalizeClaudeWebSessionInput accepts captured Claude request headers", (
     "49991d10-6725-4600-800a-3ca5168b4c6f"
   );
   assert.equal(normalized.requestHeaders["anthropic-client-version"], "1.3561.0");
+  assert.equal(normalized.requestHeaders["anthropic-anonymous-id"], "claudeai.v1.test-anonymous");
+  assert.equal(normalized.requestHeaders["anthropic-client-feature"], "ccr");
+  assert.equal(normalized.requestHeaders["Accept-Language"], "en-US,en;q=0.9");
+  assert.equal(normalized.requestHeaders["sec-ch-ua"], "\"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"");
+  assert.equal(normalized.requestHeaders["sec-fetch-site"], "same-origin");
+  assert.equal(
+    normalized.requestHeaders.traceparent,
+    "00-0000000000000000d4d17183303d12c2-3542a3233f09af1e-01"
+  );
 });
 
 test("buildClaudeWebCompletionPayload compiles chat messages into Claude web completion shape", () => {
@@ -101,7 +120,11 @@ test("DefaultExecutor sends claudew2a requests to organization conversation comp
     providerSpecificData: {
       organizationUuid: "b9c40d67-408a-453a-827b-b3dbec951661",
       requestHeaders: {
+        "anthropic-anonymous-id": "claudeai.v1.test-anonymous",
         "anthropic-device-id": "49991d10-6725-4600-800a-3ca5168b4c6f",
+        "Accept-Language": "en-US,en;q=0.9",
+        "sec-ch-ua": "\"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"",
+        "sec-fetch-site": "same-origin",
       },
     },
   };
@@ -116,6 +139,10 @@ test("DefaultExecutor sends claudew2a requests to organization conversation comp
   assert.equal(headers.Cookie, credentials.accessToken);
   assert.equal(headers["x-organization-uuid"], "b9c40d67-408a-453a-827b-b3dbec951661");
   assert.equal(headers["anthropic-device-id"], "49991d10-6725-4600-800a-3ca5168b4c6f");
+  assert.equal(headers["anthropic-anonymous-id"], "claudeai.v1.test-anonymous");
+  assert.equal(headers["Accept-Language"], "en-US,en;q=0.9");
+  assert.equal(headers["sec-ch-ua"], "\"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"");
+  assert.equal(headers["sec-fetch-site"], "same-origin");
   assert.equal(headers.Accept, "text/event-stream");
   assert.equal(headers.Authorization, undefined);
 
@@ -159,6 +186,10 @@ test("validateProviderApiKey validates claudew2a via Claude organization environ
     );
     assert.ok(String(capturedHeaders.Cookie).includes("sessionKey=sk-ant-sid02-test"));
     assert.equal(capturedHeaders["x-organization-uuid"], "b9c40d67-408a-453a-827b-b3dbec951661");
+    assert.equal(capturedHeaders["anthropic-anonymous-id"], "claudeai.v1.test-anonymous");
+    assert.equal(capturedHeaders["Accept-Language"], "en-US,en;q=0.9");
+    assert.equal(capturedHeaders["sec-ch-ua"], "\"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"");
+    assert.equal(capturedHeaders["sec-fetch-site"], "same-origin");
   } finally {
     globalThis.fetch = originalFetch;
   }

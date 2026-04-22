@@ -53,6 +53,7 @@ type ClaudeWebValidationResult =
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const CLAUDE_WEB_ALLOWED_HEADER_NAMES = new Set([
+  "accept-language",
   "anthropic-anonymous-id",
   "anthropic-beta",
   "anthropic-client-app",
@@ -65,9 +66,22 @@ const CLAUDE_WEB_ALLOWED_HEADER_NAMES = new Set([
   "anthropic-desktop-topbar",
   "anthropic-device-id",
   "anthropic-version",
+  "priority",
   "referer",
+  "sec-ch-ua",
+  "sec-ch-ua-mobile",
+  "sec-ch-ua-platform",
+  "sec-fetch-dest",
+  "sec-fetch-mode",
+  "sec-fetch-site",
+  "traceparent",
+  "tracestate",
   "user-agent",
   "x-activity-session-id",
+  "x-datadog-origin",
+  "x-datadog-parent-id",
+  "x-datadog-sampling-priority",
+  "x-datadog-trace-id",
 ]);
 
 const CLAUDE_WEB_DEFAULT_REQUEST_HEADERS: HeaderMap = {
@@ -113,6 +127,18 @@ function canonicalHeaderName(name: string): string {
       return "Referer";
     case "user-agent":
       return "User-Agent";
+    case "sec-ch-ua":
+      return "sec-ch-ua";
+    case "sec-ch-ua-mobile":
+      return "sec-ch-ua-mobile";
+    case "sec-ch-ua-platform":
+      return "sec-ch-ua-platform";
+    case "sec-fetch-dest":
+      return "sec-fetch-dest";
+    case "sec-fetch-mode":
+      return "sec-fetch-mode";
+    case "sec-fetch-site":
+      return "sec-fetch-site";
     default:
       return lower;
   }

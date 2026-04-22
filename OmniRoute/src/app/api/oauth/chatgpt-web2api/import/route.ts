@@ -5,7 +5,7 @@ import { syncToCloud } from "@/lib/cloudSync";
 import {
   buildChatgptSessionProviderData,
   validateChatgptSessionCookie,
-  validateChatgptSessionPayload,
+  validateChatgptImportedSessionPayload,
 } from "@omniroute/open-sse/utils/chatgptSession.ts";
 
 /**
@@ -35,7 +35,7 @@ export async function POST(request: any) {
         }
       }
 
-      validation = await validateChatgptSessionPayload(parsedPayload, {
+      validation = await validateChatgptImportedSessionPayload(parsedPayload, {
         allowBareSessionToken: true,
       });
       sessionSource = "browser_session_payload";

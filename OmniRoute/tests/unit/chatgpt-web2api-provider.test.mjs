@@ -50,29 +50,88 @@ test("chatgpt-web2api keeps explicit model ids (no forced remap to gpt-5)", asyn
 
 test("validateProviderApiKey returns valid for chatgpt-web2api session payload", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        user: { id: "user_123", email: "chatgpt@example.com", name: "ChatGPT User" },
-        accessToken: "session-access-token",
-        expires: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      }),
-      {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }
-    );
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response(
+        JSON.stringify({
+          user: { id: "user_123", email: "chatgpt@example.com", name: "ChatGPT User" },
+          accessToken: "session-access-token",
+          expires: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
+
+    return new Response(JSON.stringify({ limit: 42 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
 
   try {
     const result = await validateProviderApiKey({
       provider: "chatgpt-web2api",
-      apiKey: "__Secure-next-auth.session-token=abc123; oai-did=xyz",
+      apiKey: "chatgpt-access-token",
+      providerSpecificData: {
+        sessionPayload: {
+          user: { id: "user_123", email: "chatgpt@example.com", name: "ChatGPT User" },
+          accessToken: "chatgpt-access-token",
+          sessionToken: "session-token-abc123",
+        },
+      },
     });
 
     assert.equal(result.valid, true);
     assert.equal(result.error, null);
     assert.equal(result.accessToken, "session-access-token");
     assert.equal(result.session.email, "chatgpt@example.com");
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("validateProviderApiKey rejects chatgpt-web2api session payload when cookie and access token are both invalid", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "expired" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const result = await validateProviderApiKey({
+      provider: "chatgpt-web2api",
+      apiKey: "chatgpt-access-token-invalid",
+      providerSpecificData: {
+        sessionPayload: {
+          user: { id: "user_bad", email: "bad@example.com", name: "Bad User" },
+          accessToken: "chatgpt-access-token-invalid",
+          sessionToken: "session-token-invalid",
+        },
+      },
+    });
+
+    assert.equal(result.valid, false);
+    assert.equal(result.statusCode, 401);
+    assert.equal(result.code, "session_expired");
+    assert.match(result.error, /reconnect/i);
+    assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

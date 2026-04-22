@@ -619,6 +619,70 @@ export async function validateChatgptSessionPayload(
   };
 }
 
+export async function validateChatgptImportedSessionPayload(
+  rawPayload: unknown,
+  options: ChatgptSessionValidationOptions = {}
+): Promise<ChatgptSessionValidationResult> {
+  const parsed = await validateChatgptSessionPayload(rawPayload, options);
+  if (!parsed.valid) {
+    return parsed;
+  }
+
+  const cookieString =
+    typeof parsed.cookieString === "string" ? parsed.cookieString.trim() : "";
+  const accessToken =
+    typeof parsed.accessToken === "string" ? parsed.accessToken.trim() : "";
+
+  if (cookieString) {
+    const cookieValidation = await validateChatgptSessionCookie(cookieString, options);
+    if (cookieValidation.valid) {
+      return {
+        ...cookieValidation,
+        session:
+          cookieValidation.session?.id ||
+          cookieValidation.session?.email ||
+          cookieValidation.session?.name
+            ? cookieValidation.session
+            : parsed.session,
+        accountId: cookieValidation.accountId || parsed.accountId,
+        planType: cookieValidation.planType || parsed.planType,
+      };
+    }
+
+    const canFallbackToAccessToken =
+      accessToken.length > 0 &&
+      (cookieValidation.errorCode === "session_missing_user" ||
+        cookieValidation.errorCode === "missing_access_token" ||
+        cookieValidation.errorCode === "cookie_header_too_large" ||
+        cookieValidation.statusCode === 431);
+
+    if (!canFallbackToAccessToken) {
+      return cookieValidation;
+    }
+  }
+
+  if (!accessToken) {
+    return parsed;
+  }
+
+  const accessValidation = await validateChatgptAccessToken(accessToken, options);
+  if (!accessValidation.valid) {
+    return accessValidation;
+  }
+
+  return {
+    ...accessValidation,
+    session: parsed.session,
+    accountId: parsed.accountId || accessValidation.accountId,
+    planType: parsed.planType || accessValidation.planType,
+    // Cookie validation already failed, so keep this connection in bearer-only mode
+    // instead of persisting a stale session cookie that will poison later refreshes.
+    cookieString: "",
+    cookieNames: [],
+    raw: parsed.raw,
+  };
+}
+
 export async function validateChatgptSessionCookie(
   rawCookieString: unknown,
   options: ChatgptSessionValidationOptions = {}

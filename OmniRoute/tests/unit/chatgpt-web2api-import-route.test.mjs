@@ -84,44 +84,122 @@ test("ChatGPT import route normalizes cookies and persists active web session me
 test("ChatGPT import route accepts session payload JSON", async () => {
   await resetStorage();
 
-  const request = new Request("http://localhost/api/oauth/chatgpt-web2api/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sessionPayload: {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
         user: {
           id: "user_456",
           email: "payload@example.com",
           name: "Payload User",
         },
         accessToken: "chatgpt-access-token-payload",
-        sessionToken: "session-token-123",
         account: {
           id: "acc_payload",
           planType: "go",
         },
         expires: new Date(Date.now() + 25 * 60 * 1000).toISOString(),
-      },
-    }),
-  });
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }
+    );
 
-  const response = await importRoute.POST(request);
-  assert.equal(response.status, 200);
+  try {
+    const request = new Request("http://localhost/api/oauth/chatgpt-web2api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionPayload: {
+          user: {
+            id: "user_456",
+            email: "payload@example.com",
+            name: "Payload User",
+          },
+          accessToken: "chatgpt-access-token-payload",
+          sessionToken: "session-token-123",
+          account: {
+            id: "acc_payload",
+            planType: "go",
+          },
+          expires: new Date(Date.now() + 25 * 60 * 1000).toISOString(),
+        },
+      }),
+    });
 
-  const payload = await response.json();
-  assert.equal(payload.success, true);
+    const response = await importRoute.POST(request);
+    assert.equal(response.status, 200);
 
-  const connections = await providersDb.getProviderConnections({ provider: "chatgpt-web2api" });
-  assert.equal(connections.length, 1);
+    const payload = await response.json();
+    assert.equal(payload.success, true);
 
-  const stored = connections[0];
-  assert.equal(stored.email, "payload@example.com");
-  assert.equal(stored.displayName, "Payload User");
-  assert.equal(stored.accessToken, "chatgpt-access-token-payload");
-  assert.match(stored.refreshToken, /__Secure-next-auth\.session-token=session-token-123/);
-  assert.equal(stored.providerSpecificData.sessionSource, "browser_session_payload");
-  assert.equal(stored.providerSpecificData.workspaceId, "acc_payload");
-  assert.equal(stored.providerSpecificData.workspacePlanType, "go");
+    const connections = await providersDb.getProviderConnections({ provider: "chatgpt-web2api" });
+    assert.equal(connections.length, 1);
+
+    const stored = connections[0];
+    assert.equal(stored.email, "payload@example.com");
+    assert.equal(stored.displayName, "Payload User");
+    assert.equal(stored.accessToken, "chatgpt-access-token-payload");
+    assert.match(stored.refreshToken, /__Secure-next-auth\.session-token=session-token-123/);
+    assert.equal(stored.providerSpecificData.sessionSource, "browser_session_payload");
+    assert.equal(stored.providerSpecificData.workspaceId, "acc_payload");
+    assert.equal(stored.providerSpecificData.workspacePlanType, "go");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ChatGPT import route rejects session payloads that fail upstream validation", async () => {
+  await resetStorage();
+
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "expired" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const request = new Request("http://localhost/api/oauth/chatgpt-web2api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionPayload: {
+          user: {
+            id: "user_invalid",
+            email: "invalid@example.com",
+            name: "Invalid User",
+          },
+          accessToken: "chatgpt-access-token-invalid",
+          sessionToken: "session-token-invalid",
+        },
+      }),
+    });
+
+    const response = await importRoute.POST(request);
+    assert.equal(response.status, 401);
+
+    const payload = await response.json();
+    assert.equal(payload.code, "session_expired");
+    assert.match(payload.error, /reconnect/i);
+
+    const connections = await providersDb.getProviderConnections({ provider: "chatgpt-web2api" });
+    assert.equal(connections.length, 0);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("ChatGPT import route rejects malformed cookie payloads before persistence", async () => {
