@@ -9,9 +9,7 @@ import path from "path";
 import fs from "fs";
 import { resolveDataDir, getLegacyDotDataDir } from "../dataPaths";
 import { runMigrations } from "./migrationRunner";
-<<<<<<< HEAD
 import { decrypt, encrypt } from "./encryption";
-=======
 import { runDbHealthCheck } from "./healthCheck";
 import { parseStoredPayload } from "../logPayloads";
 import {
@@ -19,7 +17,6 @@ import {
   writeCallArtifact,
   type CallLogArtifact,
 } from "../usage/callLogArtifacts";
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 type SqliteDatabase = import("better-sqlite3").Database;
 type JsonRecord = Record<string, unknown>;
@@ -569,7 +566,6 @@ function ensureCallLogsColumns(db: SqliteDatabase) {
   }
 }
 
-<<<<<<< HEAD
 function toNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -702,7 +698,6 @@ function normalizeLegacyGeminiWeb2ApiConnections(db: SqliteDatabase) {
   }
 }
 
-=======
 function hasColumn(db: SqliteDatabase, tableName: string, columnName: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
   return rows.some((row) => row.name === columnName);
@@ -1110,7 +1105,6 @@ export function runManagedDbHealthCheck(options?: { autoRepair?: boolean }) {
   });
 }
 
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 export function getDbInstance(): SqliteDatabase {
   const existing = getDb();
   if (existing) return existing;
@@ -1382,9 +1376,6 @@ export function getDbInstance(): SqliteDatabase {
     migrateFromJson(db, jsonDbFile);
   }
 
-<<<<<<< HEAD
-  normalizeLegacyGeminiWeb2ApiConnections(db);
-=======
   if (failedProbePath && preservedCriticalState.preservedTables.length > 0) {
     try {
       const restoredTables = restoreCriticalDbState(db, preservedCriticalState);
@@ -1408,7 +1399,8 @@ export function getDbInstance(): SqliteDatabase {
       );
     }
   }
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+
+  normalizeLegacyGeminiWeb2ApiConnections(db);
 
   // Store schema version
   const versionStmt = db.prepare(

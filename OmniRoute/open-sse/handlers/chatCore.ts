@@ -368,6 +368,7 @@ function parseNonStreamingSSEPayload(
   queueFormat(preferredFormat);
   queueFormat(FORMATS.OPENAI_RESPONSES);
   queueFormat(FORMATS.CLAUDE);
+  queueFormat(FORMATS.PERPLEXITY_WEB2API);
   queueFormat(FORMATS.OPENAI);
 
   for (const format of formatsToTry) {
@@ -376,6 +377,8 @@ function parseNonStreamingSSEPayload(
         ? parseSSEToResponsesOutput(rawBody, fallbackModel)
         : format === FORMATS.CLAUDE
           ? parseSSEToClaudeResponse(rawBody, fallbackModel)
+          : format === FORMATS.PERPLEXITY_WEB2API
+            ? parseSSEToPerplexityWeb2ApiResponse(rawBody, fallbackModel)
           : parseSSEToOpenAIResponse(rawBody, fallbackModel);
     if (parsed && typeof parsed === "object") {
       return {
@@ -2170,18 +2173,11 @@ export async function handleChatCore({
               `[provider] Node ${connectionId} model-only rate limited (${statusCode}) for ${model} - ${Math.ceil(rateLimitCooldownMs / 1000)}s (connection stays active)`
             );
           } else {
-<<<<<<< HEAD
-            const cooldownMs = retryAfterMs || COOLDOWN_MS.rateLimit;
+            const cooldownMs = rateLimitCooldownMs;
             const rateLimitedUntil = new Date(Date.now() + cooldownMs).toISOString();
             await updateProviderConnection(connectionId, {
               rateLimitedUntil: rateLimitedUntil,
               testStatus: usesResettableWebQuota ? "unavailable" : "credits_exhausted",
-=======
-            const rateLimitedUntil = new Date(Date.now() + rateLimitCooldownMs).toISOString();
-            await updateProviderConnection(connectionId, {
-              rateLimitedUntil: rateLimitedUntil,
-              testStatus: "unavailable",
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
               lastErrorType: errorType,
               lastError: message,
               errorCode: statusCode,
@@ -2527,20 +2523,7 @@ export async function handleChatCore({
         `Unexpected ${streamKind} response for non-streaming request — buffering`
       );
       // Upstream returned SSE even though stream=false; convert best-effort to JSON.
-<<<<<<< HEAD
-      const parsedFromSSE =
-        targetFormat === FORMATS.OPENAI_RESPONSES
-          ? parseSSEToResponsesOutput(rawBody, model)
-          : targetFormat === FORMATS.CLAUDE
-            ? parseSSEToClaudeResponse(rawBody, model)
-            : targetFormat === FORMATS.PERPLEXITY_WEB2API
-              ? parseSSEToPerplexityWeb2ApiResponse(rawBody, model)
-              : targetFormat === FORMATS.CLAUDE
-                ? parseSSEToClaudeResponse(rawBody, model)
-                : parseSSEToOpenAIResponse(rawBody, model);
-=======
       const parsedFromSSE = parseNonStreamingSSEPayload(streamPayload, targetFormat, model);
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
       if (!parsedFromSSE) {
         appendRequestLog({

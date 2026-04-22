@@ -121,7 +121,6 @@ function resolveProviderModelAlias(providerOrAlias, modelId) {
   return aliases?.[modelId] || modelId;
 }
 
-<<<<<<< HEAD
 function isGeminiFamilyModel(modelId) {
   return typeof modelId === "string" && (/^gemini-/i.test(modelId) || /^gemma-/i.test(modelId));
 }
@@ -138,7 +137,9 @@ function buildAmbiguousModelResult(modelId, candidateProviders) {
     errorMessage: message,
     candidateProviders,
     candidateAliases: aliasesForHint,
-=======
+  };
+}
+
 function hasKnownProviderModel(providerOrAlias, modelId) {
   if (!providerOrAlias || !modelId) return false;
 
@@ -178,7 +179,6 @@ export function resolveCanonicalProviderModel(providerOrAlias, modelId) {
   return {
     provider,
     model: resolveProviderModelAlias(provider, modelId),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   };
 }
 
@@ -298,19 +298,19 @@ function parseAliasTarget(target) {
     };
   }
 
-<<<<<<< HEAD
-  const modelId = parsed.model;
-  if (isGeminiFamilyModel(modelId)) {
-    const candidateProviders = ["gemini", "gemini-web2api"];
-    return buildAmbiguousModelResult(modelId, candidateProviders);
-  }
-
-=======
   return { model: normalizedTarget };
 }
 
 function resolveModelByProviderInference(modelId, extendedContext) {
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
+  if (isGeminiFamilyModel(modelId)) {
+    const candidateProviders = (MODEL_TO_PROVIDERS.get(modelId) || []).filter((provider) =>
+      ["gemini", "gemini-web2api"].includes(provider)
+    );
+    if (candidateProviders.length > 1) {
+      return buildAmbiguousModelResult(modelId, candidateProviders);
+    }
+  }
+
   const providers = MODEL_TO_PROVIDERS.get(modelId) || [];
 
   // Preserve historical behavior: OpenAI stays default when model exists there

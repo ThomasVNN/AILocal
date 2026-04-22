@@ -8,17 +8,19 @@ import {
   CLAUDE_CODE_COMPATIBLE_DEFAULT_CHAT_PATH,
   joinClaudeCodeCompatibleUrl,
 } from "../services/claudeCodeCompatible.ts";
-<<<<<<< HEAD
-import { isClaudeCodeCompatible } from "../services/provider.ts";
-import { normalizePerplexityWeb2ApiModel } from "../translator/helpers/perplexityWeb2ApiHelper.ts";
-import { compactChatgptCookieString } from "../utils/chatgptSession.ts";
-import { buildGeminiAuthorizationFromCookieHeader } from "../utils/geminiWebSession.ts";
-<<<<<<< .merge_file_pPwSr2
-=======
 import { getGigachatAccessToken } from "../services/gigachatAuth.ts";
 import { applyProviderRequestDefaults } from "../services/providerRequestDefaults.ts";
 import { getOpenAICompatibleType, isClaudeCodeCompatible } from "../services/provider.ts";
 import { sanitizeQwenThinkingToolChoice } from "../services/qwenThinking.ts";
+import { normalizePerplexityWeb2ApiModel } from "../translator/helpers/perplexityWeb2ApiHelper.ts";
+import { compactChatgptCookieString } from "../utils/chatgptSession.ts";
+import {
+  buildClaudeWebCompletionPayload,
+  buildClaudeWebRequestHeaders,
+  normalizeClaudeWebModel,
+  normalizeClaudeWebSessionInput,
+} from "../utils/claudeWebSession.ts";
+import { buildGeminiAuthorizationFromCookieHeader } from "../utils/geminiWebSession.ts";
 
 function normalizeBaseUrl(baseUrl) {
   return (baseUrl || "").trim().replace(/\/$/, "");
@@ -58,14 +60,6 @@ function normalizeGigachatChatUrl(baseUrl) {
   const normalized = normalizeBaseUrl(baseUrl).replace(/\/chat\/completions$/, "");
   return `${normalized}/chat/completions`;
 }
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
-=======
-import {
-  buildClaudeWebCompletionPayload,
-  buildClaudeWebRequestHeaders,
-  normalizeClaudeWebModel,
-  normalizeClaudeWebSessionInput,
-} from "../utils/claudeWebSession.ts";
 
 function resolveClaudeWebSession(credentials) {
   const psd = credentials?.providerSpecificData || {};
@@ -94,7 +88,6 @@ function ensureClaudeWebConversationUuid(credentials) {
   psd.__claudeWebConversationUuid = conversationUuid;
   return conversationUuid;
 }
->>>>>>> .merge_file_P6I8Mx
 
 export class DefaultExecutor extends BaseExecutor {
   constructor(provider) {
@@ -205,7 +198,6 @@ export class DefaultExecutor extends BaseExecutor {
           headers["x-goog-api-key"] = keyCandidate.trim();
         }
         break;
-<<<<<<< HEAD
       }
       case "gemini-web2api": {
         const providerHeaders =
@@ -259,7 +251,6 @@ export class DefaultExecutor extends BaseExecutor {
         }
         break;
       }
-=======
       case "snowflake": {
         const rawToken = effectiveKey || credentials.accessToken || "";
         const usesProgrammaticAccessToken = rawToken.startsWith("pat/");
@@ -273,7 +264,6 @@ export class DefaultExecutor extends BaseExecutor {
       case "gigachat":
         headers["Authorization"] = `Bearer ${credentials.accessToken || effectiveKey}`;
         break;
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
       case "claude":
       case "anthropic":
         effectiveKey
@@ -396,14 +386,13 @@ export class DefaultExecutor extends BaseExecutor {
    *
    * Models may legitimately contain "/" as part of their ID (e.g. "zai-org/GLM-5-FP8",
    * "org/model-name") — we must NOT strip path segments. (Fix #493)
-   */
+  */
   transformRequest(model, body, stream, credentials) {
-<<<<<<< HEAD
     void stream;
-    void credentials;
+    const withDefaults = applyProviderRequestDefaults(body, this.config.requestDefaults);
 
-    if (this.provider === "perplexity-web2api" && body && typeof body === "object") {
-      const transformed = { ...body };
+    if (this.provider === "perplexity-web2api" && withDefaults && typeof withDefaults === "object") {
+      const transformed = { ...withDefaults };
       const currentParams =
         transformed.params &&
         typeof transformed.params === "object" &&
@@ -425,7 +414,7 @@ export class DefaultExecutor extends BaseExecutor {
       return transformed;
     }
 
-    if (this.provider === "claudew2a" && body && typeof body === "object") {
+    if (this.provider === "claudew2a" && withDefaults && typeof withDefaults === "object") {
       const psd = credentials.providerSpecificData || {};
       credentials.providerSpecificData = psd;
       const conversationUuid =
@@ -436,7 +425,7 @@ export class DefaultExecutor extends BaseExecutor {
 
       return buildClaudeWebCompletionPayload({
         model: normalizeClaudeWebModel(model),
-        body: body as Record<string, unknown>,
+        body: withDefaults as Record<string, unknown>,
         conversationUuid,
         timezone: typeof psd.timezone === "string" ? psd.timezone : null,
         locale: typeof psd.locale === "string" ? psd.locale : null,
@@ -444,17 +433,10 @@ export class DefaultExecutor extends BaseExecutor {
       });
     }
 
-    return body;
-=======
-    void model;
-    void stream;
-    void credentials;
-    const withDefaults = applyProviderRequestDefaults(body, this.config.requestDefaults);
-    if (this.provider === "qwen" && typeof body === "object" && body !== null) {
+    if (this.provider === "qwen" && withDefaults && typeof withDefaults === "object") {
       return sanitizeQwenThinkingToolChoice(withDefaults, "QwenExecutor");
     }
     return withDefaults;
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   }
 
   /**

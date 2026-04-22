@@ -1078,7 +1078,6 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     ],
   },
 
-<<<<<<< HEAD
   "perplexity-web2api": {
     id: "perplexity-web2api",
     alias: "pplx-w2a",
@@ -1186,7 +1185,9 @@ export const REGISTRY: Record<string, RegistryEntry> = {
       { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
       { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
       { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite" },
-=======
+    ],
+  },
+
   "perplexity-web": {
     id: "perplexity-web",
     alias: "pplx-web",
@@ -1203,7 +1204,6 @@ export const REGISTRY: Record<string, RegistryEntry> = {
       { id: "pplx-sonnet", name: "Claude Sonnet 4.6 (via Perplexity)" },
       { id: "pplx-opus", name: "Claude Opus 4.6 (via Perplexity)" },
       { id: "pplx-nemotron", name: "Nemotron 3 Super (via Perplexity)" },
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     ],
   },
 
