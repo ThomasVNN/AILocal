@@ -22,14 +22,6 @@ import {
   isAnthropicCompatibleProvider,
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
-import {
-  SAFE_OUTBOUND_FETCH_PRESETS,
-  SafeOutboundFetchError,
-  getSafeOutboundFetchErrorStatus,
-  safeOutboundFetch,
-} from "@/shared/network/safeOutboundFetch";
-import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuard";
-import { getGigachatAccessToken } from "@omniroute/open-sse/services/gigachatAuth.ts";
 import { validateQoderCliPat } from "@omniroute/open-sse/services/qoderCli.ts";
 
 /** Default timeout for all provider validation fetches — prevents hanging requests */
@@ -99,99 +91,10 @@ function resolveChatUrl(provider: string, baseUrl: string, providerSpecificData:
   return normalized;
 }
 
-function normalizeHerokuChatUrl(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl);
-  if (!normalized) return "";
-  return normalized.endsWith("/v1/chat/completions")
-    ? normalized
-    : `${normalized}/v1/chat/completions`;
-}
-
-function normalizeDatabricksChatUrl(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl);
-  if (!normalized) return "";
-  return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
-}
-
-function normalizeSnowflakeChatUrl(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl)
-    .replace(/\/cortex\/inference:complete$/, "")
-    .replace(/\/api\/v2$/, "");
-  if (!normalized) return "";
-  return `${normalized}/api/v2/cortex/inference:complete`;
-}
-
-function normalizeGigachatChatUrl(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl).replace(/\/chat\/completions$/, "");
-  if (!normalized) return "";
-  return `${normalized}/chat/completions`;
-}
-
-function getCustomUserAgent(providerSpecificData: any = {}) {
-  if (typeof providerSpecificData?.customUserAgent !== "string") return null;
-  const customUserAgent = providerSpecificData.customUserAgent.trim();
-  return customUserAgent || null;
-}
-
-function applyCustomUserAgent(headers: Record<string, string>, providerSpecificData: any = {}) {
-  const customUserAgent = getCustomUserAgent(providerSpecificData);
-  if (!customUserAgent) return headers;
-  headers["User-Agent"] = customUserAgent;
-  if ("user-agent" in headers) {
-    headers["user-agent"] = customUserAgent;
-  }
-  return headers;
-}
-
-function withCustomUserAgent(init: RequestInit, providerSpecificData: any = {}) {
+function buildBearerHeaders(apiKey: string) {
   return {
-    ...init,
-    headers: applyCustomUserAgent(
-      { ...((init.headers as Record<string, string> | undefined) || {}) },
-      providerSpecificData
-    ),
-  };
-}
-
-function buildBearerHeaders(apiKey: string, providerSpecificData: any = {}) {
-  return applyCustomUserAgent(
-    {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    providerSpecificData
-  );
-}
-
-async function validationRead(url: string, init: RequestInit) {
-  return safeOutboundFetch(url, {
-    ...SAFE_OUTBOUND_FETCH_PRESETS.validationRead,
-    guard: getProviderOutboundGuard(),
-    ...init,
-  });
-}
-
-async function validationWrite(url: string, init: RequestInit) {
-  return safeOutboundFetch(url, {
-    ...SAFE_OUTBOUND_FETCH_PRESETS.validationWrite,
-    guard: getProviderOutboundGuard(),
-    ...init,
-  });
-}
-
-function toValidationErrorResult(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "Validation failed");
-  const statusCode = getSafeOutboundFetchErrorStatus(error);
-
-  return {
-    valid: false,
-    error: message || "Validation failed",
-    unsupported: false,
-    ...(statusCode ? { statusCode } : {}),
-    ...(error instanceof SafeOutboundFetchError && error.code === "TIMEOUT"
-      ? { timeout: true }
-      : {}),
-    ...(statusCode === 400 ? { securityBlocked: true } : {}),
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
   };
 }
 
@@ -212,14 +115,10 @@ async function validateOpenAILikeProvider({
     return { valid: false, error: "Invalid models endpoint" };
   }
 
-  const modelsRes = await validationRead(modelsUrl, {
+  const modelsRes = await fetch(modelsUrl, {
     method: "GET",
-<<<<<<< HEAD
     headers: buildBearerHeaders(apiKey),
     signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
-    headers: buildBearerHeaders(apiKey, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   });
 
   if (modelsRes.ok) {
@@ -243,9 +142,9 @@ async function validateOpenAILikeProvider({
     max_tokens: 1,
   };
 
-  const chatRes = await validationWrite(chatUrl, {
+  const chatRes = await fetch(chatUrl, {
     method: "POST",
-    headers: buildBearerHeaders(apiKey, providerSpecificData),
+    headers: buildBearerHeaders(apiKey),
     body: JSON.stringify(testBody),
     signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
   });
@@ -270,37 +169,6 @@ async function validateOpenAILikeProvider({
   return { valid: true, error: null };
 }
 
-async function validateDirectChatProvider({ url, headers, body, providerSpecificData = {} }: any) {
-  try {
-    const response = await validationWrite(url, {
-      method: "POST",
-      headers: applyCustomUserAgent(headers, providerSpecificData),
-      body: JSON.stringify(body),
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      return { valid: false, error: "Invalid API key" };
-    }
-
-    if (
-      response.ok ||
-      response.status === 400 ||
-      response.status === 422 ||
-      response.status === 429
-    ) {
-      return { valid: true, error: null };
-    }
-
-    if (response.status >= 500) {
-      return { valid: false, error: `Provider unavailable (${response.status})` };
-    }
-
-    return { valid: false, error: `Validation failed: ${response.status}` };
-  } catch (error: any) {
-    return toValidationErrorResult(error);
-  }
-}
-
 async function validateAnthropicLikeProvider({
   apiKey,
   baseUrl,
@@ -312,13 +180,10 @@ async function validateAnthropicLikeProvider({
     return { valid: false, error: "Missing base URL" };
   }
 
-  const requestHeaders = applyCustomUserAgent(
-    {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    providerSpecificData
-  );
+  const requestHeaders = {
+    "Content-Type": "application/json",
+    ...headers,
+  };
 
   if (!requestHeaders["x-api-key"] && !requestHeaders["X-API-Key"]) {
     requestHeaders["x-api-key"] = apiKey;
@@ -331,7 +196,7 @@ async function validateAnthropicLikeProvider({
   const testModelId =
     providerSpecificData?.validationModelId || modelId || "claude-3-5-sonnet-20241022";
 
-  const response = await validationWrite(baseUrl, {
+  const response = await fetch(baseUrl, {
     method: "POST",
     headers: requestHeaders,
     body: JSON.stringify({
@@ -349,85 +214,24 @@ async function validateAnthropicLikeProvider({
   return { valid: true, error: null };
 }
 
-async function validateGeminiLikeProvider({
-  apiKey,
-  baseUrl,
-  authType,
-  providerSpecificData = {},
-}: any) {
+async function validateGeminiLikeProvider({ apiKey, baseUrl }: any) {
   if (!baseUrl) {
     return { valid: false, error: "Missing base URL" };
   }
 
-<<<<<<< HEAD
   const separator = baseUrl.includes("?") ? "&" : "?";
   const response = await fetch(`${baseUrl}${separator}key=${encodeURIComponent(apiKey)}`, {
     method: "GET",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
   });
-=======
-  // Use the correct auth header based on provider config:
-  // - gemini (API key): x-goog-api-key
-  // - gemini-cli (OAuth): Bearer token
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (authType === "oauth") {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  } else {
-    headers["x-goog-api-key"] = apiKey;
-  }
-  applyCustomUserAgent(headers, providerSpecificData);
-
-  const response = await validationRead(baseUrl, { method: "GET", headers });
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
   if (response.ok) {
     return { valid: true, error: null };
   }
 
-  // 429 = rate limited, but auth is valid
-  if (response.status === 429) {
-    return { valid: true, error: null };
-  }
-
-  // Google returns 400 (not 401/403) for invalid API keys on the models endpoint.
-  // Parse the response body to detect auth failures.
-  if (response.status === 400 || response.status === 401 || response.status === 403) {
-    const isAuthError = (body: any) => {
-      const message = (body?.error?.message || "").toLowerCase();
-      const reason = body?.error?.details?.[0]?.reason || "";
-      const status = body?.error?.status || "";
-      const authPatterns = [
-        "api key not valid",
-        "api key expired",
-        "api key invalid",
-        "API_KEY_INVALID",
-        "API_KEY_EXPIRED",
-        "PERMISSION_DENIED",
-        "UNAUTHENTICATED",
-      ];
-      return authPatterns.some(
-        (p) => message.includes(p.toLowerCase()) || reason === p || status === p
-      );
-    };
-
-    try {
-      const body = await response.json();
-      if (isAuthError(body)) {
-        return { valid: false, error: "Invalid API key" };
-      }
-      // 401/403 are always auth failures even without matching patterns
-      if (response.status === 401 || response.status === 403) {
-        return { valid: false, error: "Invalid API key" };
-      }
-    } catch {
-      // Unparseable body — 401/403 are always auth failures
-      if (response.status === 401 || response.status === 403) {
-        return { valid: false, error: "Invalid API key" };
-      }
-      // 400 without parseable body — likely auth issue for Gemini
-      return { valid: false, error: "Invalid API key" };
-    }
+  if (response.status === 401 || response.status === 403) {
+    return { valid: false, error: "Invalid API key" };
   }
 
   return { valid: false, error: `Validation failed: ${response.status}` };
@@ -435,16 +239,12 @@ async function validateGeminiLikeProvider({
 
 // ── Specialty providers (non-standard APIs) ──
 
-async function validateDeepgramProvider({ apiKey, providerSpecificData = {} }: any) {
+async function validateDeepgramProvider({ apiKey }: any) {
   try {
-    const response = await validationRead("https://api.deepgram.com/v1/auth/token", {
+    const response = await fetch("https://api.deepgram.com/v1/auth/token", {
       method: "GET",
-<<<<<<< HEAD
       headers: { Authorization: `Token ${apiKey}` },
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
-      headers: applyCustomUserAgent({ Authorization: `Token ${apiKey}` }, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     });
     if (response.ok) return { valid: true, error: null };
     if (response.status === 401 || response.status === 403) {
@@ -452,29 +252,19 @@ async function validateDeepgramProvider({ apiKey, providerSpecificData = {} }: a
     }
     return { valid: false, error: `Validation failed: ${response.status}` };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
 }
 
-async function validateAssemblyAIProvider({ apiKey, providerSpecificData = {} }: any) {
+async function validateAssemblyAIProvider({ apiKey }: any) {
   try {
-    const response = await validationRead("https://api.assemblyai.com/v2/transcript?limit=1", {
+    const response = await fetch("https://api.assemblyai.com/v2/transcript?limit=1", {
       method: "GET",
-<<<<<<< HEAD
       headers: {
         Authorization: apiKey,
         "Content-Type": "application/json",
       },
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
-      headers: applyCustomUserAgent(
-        {
-          Authorization: apiKey,
-          "Content-Type": "application/json",
-        },
-        providerSpecificData
-      ),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     });
     if (response.ok) return { valid: true, error: null };
     if (response.status === 401 || response.status === 403) {
@@ -482,15 +272,14 @@ async function validateAssemblyAIProvider({ apiKey, providerSpecificData = {} }:
     }
     return { valid: false, error: `Validation failed: ${response.status}` };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
 }
 
-async function validateNanoBananaProvider({ apiKey, providerSpecificData = {} }: any) {
+async function validateNanoBananaProvider({ apiKey }: any) {
   try {
     // NanoBanana doesn't expose a lightweight validation endpoint,
     // so we send a minimal generate request that will succeed or fail on auth.
-<<<<<<< HEAD
     const response = await fetch("https://api.nanobananaapi.ai/api/v1/nanobanana/generate", {
       method: "POST",
       headers: {
@@ -503,55 +292,26 @@ async function validateNanoBananaProvider({ apiKey, providerSpecificData = {} }:
       }),
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
     });
-=======
-    const response = await validationWrite(
-      "https://api.nanobananaapi.ai/api/v1/nanobanana/generate",
-      {
-        method: "POST",
-        headers: applyCustomUserAgent(
-          {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          providerSpecificData
-        ),
-        body: JSON.stringify({
-          prompt: "test",
-          model: "nanobanana-flash",
-        }),
-      }
-    );
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     // Auth errors → 401/403; anything else (even 400 bad request) means auth passed
     if (response.status === 401 || response.status === 403) {
       return { valid: false, error: "Invalid API key" };
     }
     return { valid: true, error: null };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
 }
 
-async function validateElevenLabsProvider({ apiKey, providerSpecificData = {} }: any) {
+async function validateElevenLabsProvider({ apiKey }: any) {
   try {
     // Lightweight auth check endpoint
-    const response = await validationRead("https://api.elevenlabs.io/v1/voices", {
+    const response = await fetch("https://api.elevenlabs.io/v1/voices", {
       method: "GET",
-<<<<<<< HEAD
       headers: {
         "xi-api-key": apiKey,
         "Content-Type": "application/json",
       },
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
-      headers: applyCustomUserAgent(
-        {
-          "xi-api-key": apiKey,
-          "Content-Type": "application/json",
-        },
-        providerSpecificData
-      ),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     });
 
     if (response.ok) return { valid: true, error: null };
@@ -561,23 +321,20 @@ async function validateElevenLabsProvider({ apiKey, providerSpecificData = {} }:
 
     return { valid: false, error: `Validation failed: ${response.status}` };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
 }
 
-async function validateInworldProvider({ apiKey, providerSpecificData = {} }: any) {
+async function validateInworldProvider({ apiKey }: any) {
   try {
     // Inworld TTS lacks a simple key-introspection endpoint.
     // Send a minimal synth request and treat non-auth 4xx as auth-pass.
-    const response = await validationWrite("https://api.inworld.ai/tts/v1/voice", {
+    const response = await fetch("https://api.inworld.ai/tts/v1/voice", {
       method: "POST",
-      headers: applyCustomUserAgent(
-        {
-          Authorization: `Basic ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        providerSpecificData
-      ),
+      headers: {
+        Authorization: `Basic ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         text: "test",
         modelId: "inworld-tts-1.5-mini",
@@ -593,7 +350,7 @@ async function validateInworldProvider({ apiKey, providerSpecificData = {} }: an
     // Any other response indicates auth is accepted (payload/model may still be wrong)
     return { valid: true, error: null };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
 }
 
@@ -609,16 +366,13 @@ async function validateBailianCodingPlanProvider({ apiKey, providerSpecificData 
     // It does NOT expose /v1/models — use messages probe directly
     const messagesUrl = `${baseUrl}/messages`;
 
-    const response = await validationWrite(messagesUrl, {
+    const response = await fetch(messagesUrl, {
       method: "POST",
-      headers: applyCustomUserAgent(
-        {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        providerSpecificData
-      ),
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
       body: JSON.stringify({
         model: "qwen3-coder-plus",
         max_tokens: 1,
@@ -643,99 +397,8 @@ async function validateBailianCodingPlanProvider({ apiKey, providerSpecificData 
 
     return { valid: false, error: `Validation failed: ${response.status}` };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed" };
   }
-}
-
-async function validateHerokuProvider({ apiKey, providerSpecificData = {} }: any) {
-  const baseUrl = normalizeBaseUrl(providerSpecificData.baseUrl);
-  if (!baseUrl) {
-    return { valid: false, error: "Missing base URL" };
-  }
-
-  return validateDirectChatProvider({
-    url: normalizeHerokuChatUrl(baseUrl),
-    headers: buildBearerHeaders(apiKey, providerSpecificData),
-    body: {
-      model: providerSpecificData.validationModelId || "claude-4-sonnet",
-      messages: [{ role: "user", content: "test" }],
-      max_tokens: 1,
-    },
-    providerSpecificData,
-  });
-}
-
-async function validateDatabricksProvider({ apiKey, providerSpecificData = {} }: any) {
-  const baseUrl = normalizeBaseUrl(providerSpecificData.baseUrl);
-  if (!baseUrl) {
-    return { valid: false, error: "Missing base URL" };
-  }
-
-  return validateDirectChatProvider({
-    url: normalizeDatabricksChatUrl(baseUrl),
-    headers: buildBearerHeaders(apiKey, providerSpecificData),
-    body: {
-      model: providerSpecificData.validationModelId || "databricks-meta-llama-3-3-70b-instruct",
-      messages: [{ role: "user", content: "test" }],
-      max_tokens: 1,
-    },
-    providerSpecificData,
-  });
-}
-
-async function validateSnowflakeProvider({ apiKey, providerSpecificData = {} }: any) {
-  const baseUrl = normalizeBaseUrl(providerSpecificData.baseUrl);
-  if (!baseUrl) {
-    return { valid: false, error: "Missing base URL" };
-  }
-
-  const usesProgrammaticAccessToken = apiKey.startsWith("pat/");
-  return validateDirectChatProvider({
-    url: normalizeSnowflakeChatUrl(baseUrl),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${usesProgrammaticAccessToken ? apiKey.slice(4) : apiKey}`,
-      "X-Snowflake-Authorization-Token-Type": usesProgrammaticAccessToken
-        ? "PROGRAMMATIC_ACCESS_TOKEN"
-        : "KEYPAIR_JWT",
-    },
-    body: {
-      model: providerSpecificData.validationModelId || "llama3.3-70b",
-      messages: [{ role: "user", content: "test" }],
-      max_tokens: 1,
-    },
-    providerSpecificData,
-  });
-}
-
-async function validateGigachatProvider({ apiKey, providerSpecificData = {} }: any) {
-  const baseUrl =
-    normalizeBaseUrl(providerSpecificData.baseUrl) || "https://gigachat.devices.sberbank.ru/api/v1";
-
-  let token;
-  try {
-    token = await getGigachatAccessToken({ credentials: apiKey });
-  } catch (error: any) {
-    if (String(error?.message || "").match(/\b(401|403)\b/)) {
-      return { valid: false, error: "Invalid API key" };
-    }
-    return toValidationErrorResult(error);
-  }
-
-  return validateDirectChatProvider({
-    url: normalizeGigachatChatUrl(baseUrl),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token.accessToken}`,
-      Accept: "application/json",
-    },
-    body: {
-      model: providerSpecificData.validationModelId || "GigaChat-2-Pro",
-      messages: [{ role: "user", content: "test" }],
-      max_tokens: 1,
-    },
-    providerSpecificData,
-  });
 }
 
 async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData = {} }: any) {
@@ -752,14 +415,10 @@ async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData =
   // Step 1: Try GET /models
   let modelsReachable = false;
   try {
-    const modelsRes = await validationRead(`${baseUrl}/models`, {
+    const modelsRes = await fetch(`${baseUrl}/models`, {
       method: "GET",
-<<<<<<< HEAD
       headers: buildBearerHeaders(apiKey),
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MS),
-=======
-      headers: buildBearerHeaders(apiKey, providerSpecificData),
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     });
 
     modelsReachable = true;
@@ -802,9 +461,9 @@ async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData =
   const testModelId = validationModelId;
 
   try {
-    const chatRes = await validationWrite(chatUrl, {
+    const chatRes = await fetch(chatUrl, {
       method: "POST",
-      headers: buildBearerHeaders(apiKey, providerSpecificData),
+      headers: buildBearerHeaders(apiKey),
       body: JSON.stringify({
         model: testModelId,
         messages: [{ role: "user", content: "test" }],
@@ -865,9 +524,10 @@ async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData =
   }
 
   try {
-    const pingRes = await validationRead(baseUrl, {
+    const pingRes = await fetch(baseUrl, {
       method: "GET",
-      headers: buildBearerHeaders(apiKey, providerSpecificData),
+      headers: buildBearerHeaders(apiKey),
+      signal: AbortSignal.timeout(5000),
     });
 
     // If the server responds at all (even with an error page), it's reachable
@@ -877,7 +537,7 @@ async function validateOpenAICompatibleProvider({ apiKey, providerSpecificData =
 
     return { valid: false, error: `Provider unavailable (${pingRes.status})` };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Connection failed" };
   }
 }
 
@@ -887,19 +547,16 @@ async function validateAnthropicCompatibleProvider({ apiKey, providerSpecificDat
     return { valid: false, error: "No base URL configured for Anthropic compatible provider" };
   }
 
-  const headers = applyCustomUserAgent(
-    {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    providerSpecificData
-  );
+  const headers = {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+    Authorization: `Bearer ${apiKey}`,
+  };
 
   // Step 1: Try GET /models
   try {
-    const modelsRes = await validationRead(
+    const modelsRes = await fetch(
       joinBaseUrlAndPath(baseUrl, providerSpecificData?.modelsPath || "/models"),
       {
         method: "GET",
@@ -922,7 +579,7 @@ async function validateAnthropicCompatibleProvider({ apiKey, providerSpecificDat
   // Step 2: Fallback — try a minimal messages request
   const testModelId = providerSpecificData?.validationModelId || "claude-3-5-sonnet-20241022";
   try {
-    const messagesRes = await validationWrite(
+    const messagesRes = await fetch(
       joinBaseUrlAndPath(baseUrl, providerSpecificData?.chatPath || "/messages"),
       {
         method: "POST",
@@ -943,7 +600,7 @@ async function validateAnthropicCompatibleProvider({ apiKey, providerSpecificDat
     // Any other response (200, 400, 422, etc.) means auth passed
     return { valid: true, error: null };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Connection failed" };
   }
 }
 
@@ -958,13 +615,10 @@ export async function validateClaudeCodeCompatibleProvider({
 
   const modelsPath = providerSpecificData?.modelsPath || CLAUDE_CODE_COMPATIBLE_DEFAULT_MODELS_PATH;
   const chatPath = providerSpecificData?.chatPath || CLAUDE_CODE_COMPATIBLE_DEFAULT_CHAT_PATH;
-  const defaultHeaders = applyCustomUserAgent(
-    buildClaudeCodeCompatibleHeaders(apiKey, false),
-    providerSpecificData
-  );
+  const defaultHeaders = buildClaudeCodeCompatibleHeaders(apiKey, false);
 
   try {
-    const modelsRes = await validationRead(joinClaudeCodeCompatibleUrl(baseUrl, modelsPath), {
+    const modelsRes = await fetch(joinClaudeCodeCompatibleUrl(baseUrl, modelsPath), {
       method: "GET",
       headers: defaultHeaders,
     });
@@ -986,12 +640,9 @@ export async function validateClaudeCodeCompatibleProvider({
   const sessionId = JSON.parse(payload.metadata.user_id).session_id;
 
   try {
-    const messagesRes = await validationWrite(joinClaudeCodeCompatibleUrl(baseUrl, chatPath), {
+    const messagesRes = await fetch(joinClaudeCodeCompatibleUrl(baseUrl, chatPath), {
       method: "POST",
-      headers: applyCustomUserAgent(
-        buildClaudeCodeCompatibleHeaders(apiKey, true, sessionId),
-        providerSpecificData
-      ),
+      headers: buildClaudeCodeCompatibleHeaders(apiKey, true, sessionId),
       body: JSON.stringify(payload),
     });
 
@@ -1023,7 +674,7 @@ export async function validateClaudeCodeCompatibleProvider({
       method: "cc_bridge_request",
     };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Connection failed" };
   }
 }
 
@@ -1031,15 +682,10 @@ export async function validateClaudeCodeCompatibleProvider({
 
 async function validateSearchProvider(
   url: string,
-  init: RequestInit,
-  providerSpecificData: any = {}
+  init: RequestInit
 ): Promise<{ valid: boolean; error: string | null; unsupported: false }> {
   try {
-    const response = await safeOutboundFetch(url, {
-      ...SAFE_OUTBOUND_FETCH_PRESETS.validationWrite,
-      guard: getProviderOutboundGuard(),
-      ...withCustomUserAgent(init, providerSpecificData),
-    });
+    const response = await fetch(url, init);
     if (response.ok) return { valid: true, error: null, unsupported: false };
     if (response.status === 401 || response.status === 403) {
       return { valid: false, error: "Invalid API key", unsupported: false };
@@ -1052,13 +698,13 @@ async function validateSearchProvider(
     }
     return { valid: false, error: `Validation failed: ${response.status}`, unsupported: false };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed", unsupported: false };
   }
 }
 
 const SEARCH_VALIDATOR_CONFIGS: Record<
   string,
-  (apiKey: string, providerSpecificData?: any) => { url: string; init: RequestInit }
+  (apiKey: string) => { url: string; init: RequestInit }
 > = {
   "serper-search": (apiKey) => ({
     url: "https://google.serper.dev/search",
@@ -1099,234 +745,10 @@ const SEARCH_VALIDATOR_CONFIGS: Record<
       body: JSON.stringify({ query: "test", max_results: 1 }),
     },
   }),
-  "google-pse-search": (apiKey, providerSpecificData = {}) => {
-    const cx = providerSpecificData?.cx;
-    if (!cx || typeof cx !== "string") {
-      throw new Error("Programmable Search Engine ID (cx) is required");
-    }
-    return {
-      url: `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(
-        cx
-      )}&q=test&num=1`,
-      init: {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      },
-    };
-  },
-  "linkup-search": (apiKey) => ({
-    url: "https://api.linkup.so/v1/search",
-    init: {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        q: "test",
-        depth: "standard",
-        outputType: "searchResults",
-        maxResults: 1,
-      }),
-    },
-  }),
-  "searchapi-search": (apiKey) => ({
-    url: `https://www.searchapi.io/api/v1/search?engine=google&q=test&api_key=${encodeURIComponent(
-      apiKey
-    )}`,
-    init: {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    },
-  }),
-  "searxng-search": (_apiKey, providerSpecificData = {}) => {
-    const baseUrl =
-      typeof providerSpecificData?.baseUrl === "string" && providerSpecificData.baseUrl.trim()
-        ? providerSpecificData.baseUrl.trim().replace(/\/+$/, "")
-        : "http://localhost:8888/search";
-    const searchUrl = baseUrl.endsWith("/search") ? baseUrl : `${baseUrl}/search`;
-    return {
-      url: `${searchUrl}?q=test&format=json`,
-      init: {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      },
-    };
-  },
 };
 
-async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: any) {
-  try {
-    let token = apiKey;
-    if (token.startsWith("sso=")) token = token.slice(4);
-
-    // Generate the same Cloudflare-bypass headers the GrokWebExecutor uses.
-    const randomHex = (n: number) => {
-      const a = new Uint8Array(n);
-      crypto.getRandomValues(a);
-      return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
-    };
-    const statsigMsg = `e:TypeError: Cannot read properties of null (reading 'children')`;
-    const traceId = randomHex(16);
-    const spanId = randomHex(8);
-
-    const response = await validationWrite("https://grok.com/rest/app-chat/conversations/new", {
-      method: "POST",
-      headers: applyCustomUserAgent(
-        {
-          Accept: "*/*",
-          "Accept-Encoding": "gzip, deflate, br, zstd",
-          "Accept-Language": "en-US,en;q=0.9",
-          Baggage:
-            "sentry-environment=production,sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c",
-          "Cache-Control": "no-cache",
-          "Content-Type": "application/json",
-          Cookie: `sso=${token}`,
-          Origin: "https://grok.com",
-          Pragma: "no-cache",
-          Referer: "https://grok.com/",
-          "Sec-Ch-Ua": '"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"',
-          "Sec-Ch-Ua-Mobile": "?0",
-          "Sec-Ch-Ua-Platform": '"macOS"',
-          "Sec-Fetch-Dest": "empty",
-          "Sec-Fetch-Mode": "cors",
-          "Sec-Fetch-Site": "same-origin",
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-          "x-statsig-id": btoa(statsigMsg),
-          "x-xai-request-id": crypto.randomUUID(),
-          traceparent: `00-${traceId}-${spanId}-00`,
-        },
-        providerSpecificData
-      ),
-      body: JSON.stringify({
-        temporary: true,
-        modelName: "grok-4-1-thinking-1129",
-        modelMode: "MODEL_MODE_FAST",
-        message: "test",
-        fileAttachments: [],
-        imageAttachments: [],
-        disableSearch: true,
-        enableImageGeneration: false,
-        returnImageBytes: false,
-        returnRawGrokInXaiRequest: false,
-        enableImageStreaming: false,
-        imageGenerationCount: 0,
-        forceConcise: true,
-        toolOverrides: {},
-        enableSideBySide: false,
-        sendFinalMetadata: false,
-        isReasoning: false,
-        disableTextFollowUps: true,
-        disableMemory: true,
-        forceSideBySide: false,
-        isAsyncChat: false,
-        disableSelfHarmShortCircuit: false,
-      }),
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      return {
-        valid: false,
-        error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
-      };
-    }
-
-    // 200 or non-auth 4xx (e.g. 400, 429) means the cookie is accepted
-    if (response.ok || (response.status >= 400 && response.status < 500)) {
-      return { valid: true, error: null };
-    }
-
-    if (response.status >= 500) {
-      return { valid: false, error: `Grok unavailable (${response.status})` };
-    }
-
-    return { valid: false, error: `Validation failed: ${response.status}` };
-  } catch (error: any) {
-    return toValidationErrorResult(error);
-  }
-}
-
-async function validatePerplexityWebProvider({ apiKey, providerSpecificData = {} }: any) {
-  try {
-    let sessionToken = apiKey;
-    let bearerToken: string | null = null;
-
-    if (sessionToken.startsWith("__Secure-next-auth.session-token=")) {
-      sessionToken = sessionToken.slice("__Secure-next-auth.session-token=".length);
-    } else if (/^bearer\s+/i.test(sessionToken)) {
-      bearerToken = sessionToken.replace(/^bearer\s+/i, "").trim();
-      sessionToken = "";
-    }
-
-    const timezone =
-      typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
-    const headers = applyCustomUserAgent(
-      {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-        Origin: "https://www.perplexity.ai",
-        Referer: "https://www.perplexity.ai/",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-        "X-App-ApiClient": "default",
-        "X-App-ApiVersion": "client-1.11.0",
-        ...(bearerToken
-          ? { Authorization: `Bearer ${bearerToken}` }
-          : sessionToken
-            ? { Cookie: `__Secure-next-auth.session-token=${sessionToken}` }
-            : {}),
-      },
-      providerSpecificData
-    );
-
-    const response = await validationWrite("https://www.perplexity.ai/rest/sse/perplexity_ask", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query_str: "test",
-        params: {
-          query_str: "test",
-          search_focus: "internet",
-          mode: "concise",
-          model_preference: "default",
-          sources: ["web"],
-          attachments: [],
-          frontend_uuid: crypto.randomUUID(),
-          frontend_context_uuid: crypto.randomUUID(),
-          version: "client-1.11.0",
-          language: "en-US",
-          timezone,
-          search_recency_filter: null,
-          is_incognito: true,
-          use_schematized_api: true,
-          last_backend_uuid: null,
-        },
-      }),
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      return {
-        valid: false,
-        error:
-          "Invalid Perplexity session cookie — re-paste __Secure-next-auth.session-token from perplexity.ai",
-      };
-    }
-
-    if (response.ok || (response.status >= 400 && response.status < 500)) {
-      return { valid: true, error: null };
-    }
-
-    if (response.status >= 500) {
-      return { valid: false, error: `Perplexity unavailable (${response.status})` };
-    }
-
-    return { valid: false, error: `Validation failed: ${response.status}` };
-  } catch (error: any) {
-    return toValidationErrorResult(error);
-  }
-}
-
 export async function validateProviderApiKey({ provider, apiKey, providerSpecificData = {} }: any) {
-  const requiresApiKey = provider !== "searxng-search";
-  if (!provider || (requiresApiKey && !apiKey)) {
+  if (!provider || !apiKey) {
     return { valid: false, error: "Provider and API key required", unsupported: false };
   }
 
@@ -1334,7 +756,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     try {
       return await validateOpenAICompatibleProvider({ apiKey, providerSpecificData });
     } catch (error: any) {
-      return toValidationErrorResult(error);
+      return { valid: false, error: error.message || "Validation failed", unsupported: false };
     }
   }
 
@@ -1345,7 +767,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
       }
       return await validateAnthropicCompatibleProvider({ apiKey, providerSpecificData });
     } catch (error: any) {
-      return toValidationErrorResult(error);
+      return { valid: false, error: error.message || "Validation failed", unsupported: false };
     }
   }
 
@@ -1359,30 +781,12 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     elevenlabs: validateElevenLabsProvider,
     inworld: validateInworldProvider,
     "bailian-coding-plan": validateBailianCodingPlanProvider,
-    heroku: validateHerokuProvider,
-    databricks: validateDatabricksProvider,
-    snowflake: validateSnowflakeProvider,
-    gigachat: validateGigachatProvider,
-    "grok-web": validateGrokWebProvider,
-    "perplexity-web": validatePerplexityWebProvider,
-    vertex: async ({ apiKey }: any) => {
-      try {
-        const { parseSAFromApiKey, getAccessToken } =
-          await import("@omniroute/open-sse/executors/vertex.ts");
-        const sa = parseSAFromApiKey(apiKey);
-        // Validates credentials by successfully exchanging them for a JWT from Google Identity
-        await getAccessToken(sa);
-        return { valid: true, error: null };
-      } catch (error: any) {
-        return { valid: false, error: "Invalid Service Account JSON: " + error.message };
-      }
-    },
     // LongCat AI — does not expose /v1/models; validate via chat completions directly (#592)
-    longcat: async ({ apiKey, providerSpecificData }: any) => {
+    longcat: async ({ apiKey }: any) => {
       try {
-        const res = await validationWrite("https://api.longcat.chat/openai/v1/chat/completions", {
+        const res = await fetch("https://api.longcat.chat/openai/v1/chat/completions", {
           method: "POST",
-          headers: buildBearerHeaders(apiKey, providerSpecificData),
+          headers: buildBearerHeaders(apiKey),
           body: JSON.stringify({
             model: "longcat",
             messages: [{ role: "user", content: "test" }],
@@ -1395,7 +799,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
         // Any non-auth response (200, 400, 422) means auth passed
         return { valid: true, error: null };
       } catch (error: any) {
-        return toValidationErrorResult(error);
+        return { valid: false, error: error.message || "Connection failed" };
       }
     },
     // Perplexity Web2API — validates full browser Cookie header string via auth/session endpoint
@@ -1571,9 +975,9 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     ...Object.fromEntries(
       Object.entries(SEARCH_VALIDATOR_CONFIGS).map(([id, configFn]) => [
         id,
-        ({ apiKey, providerSpecificData }: any) => {
-          const { url, init } = configFn(apiKey, providerSpecificData);
-          return validateSearchProvider(url, init, providerSpecificData);
+        ({ apiKey }: any) => {
+          const { url, init } = configFn(apiKey);
+          return validateSearchProvider(url, init);
         },
       ])
     ),
@@ -1583,7 +987,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     try {
       return await SPECIALTY_VALIDATORS[provider]({ apiKey, providerSpecificData });
     } catch (error: any) {
-      return toValidationErrorResult(error);
+      return { valid: false, error: error.message || "Validation failed", unsupported: false };
     }
   }
 
@@ -1637,13 +1041,11 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
       return await validateGeminiLikeProvider({
         apiKey,
         baseUrl,
-        providerSpecificData,
-        authType: entry.authType,
       });
     }
 
     return { valid: false, error: "Provider validation not supported", unsupported: true };
   } catch (error: any) {
-    return toValidationErrorResult(error);
+    return { valid: false, error: error.message || "Validation failed", unsupported: false };
   }
 }

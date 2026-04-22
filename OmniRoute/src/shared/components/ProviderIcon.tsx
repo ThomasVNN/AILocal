@@ -18,33 +18,26 @@ import { memo, useState, Component, type ReactNode } from "react";
 import Image from "next/image";
 import { ProviderIcon as LobehubProviderIcon } from "@lobehub/icons";
 
+// Mapping from OmniRoute provider IDs → Lobehub icon IDs
+// Lobehub uses lowercase IDs matching ModelProvider enum values
 const LOBEHUB_PROVIDER_MAP: Record<string, string> = {
   openai: "openai",
   anthropic: "anthropic",
   claude: "anthropic",
   gemini: "google",
-  "gemini-cli": "gemini",
   google: "google",
-  "google-pse-search": "google",
   deepseek: "deepseek",
   groq: "groq",
   mistral: "mistral",
-  codestral: "mistral",
   cohere: "cohere",
   perplexity: "perplexity",
-<<<<<<< HEAD
   "perplexity-web2api": "perplexity",
   "chatgpt-web2api": "openai",
   claudew2a: "anthropic",
   "gemini-web2api": "google",
-=======
-  "perplexity-search": "perplexity",
-  "perplexity-web": "perplexity",
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
   xai: "xai",
   grok: "xai",
-  "grok-web": "xai",
-  together: "together",
+  together: "togetherai",
   fireworks: "fireworks",
   "fireworks-ai": "fireworks",
   cerebras: "cerebras",
@@ -53,22 +46,16 @@ const LOBEHUB_PROVIDER_MAP: Record<string, string> = {
   openrouter: "openrouter",
   "open-router": "openrouter",
   ollama: "ollama",
-  "ollama-cloud": "ollama",
   minimax: "minimax",
-  "minimax-cn": "minimax",
   qwen: "qwen",
   alibaba: "qwen",
   moonshot: "moonshot",
   kimi: "moonshot",
-  "kimi-coding": "kimi",
-  "kimi-coding-apikey": "kimi",
   baidu: "baidu",
   ernie: "baidu",
   spark: "iflytek",
   "zhipu-ai": "zhipu",
   zhipu: "zhipu",
-  glm: "zhipu",
-  glmt: "zhipu",
   lmsys: "lmsys",
   "stability-ai": "stability",
   stability: "stability",
@@ -83,8 +70,11 @@ const LOBEHUB_PROVIDER_MAP: Record<string, string> = {
   "azure-openai": "azure",
   copilot: "githubcopilot",
   "github-copilot": "githubcopilot",
-  github: "github",
   mistralai: "mistral",
+  codex: "openai",
+  blackbox: "blackboxai",
+  blackboxai: "blackboxai",
+  pollinations: "pollinations",
 };
 
 interface ProviderIconProps {
@@ -157,8 +147,8 @@ const KNOWN_PNGS = new Set([
   "gemini",
   "github",
   "glm",
-  "glmt",
   "groq",
+  "iflow",
   "ironclaw",
   "kilo-gateway",
   "kilocode",

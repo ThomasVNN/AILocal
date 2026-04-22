@@ -13,18 +13,8 @@ export default defineConfig({
       "open-sse/**/__tests__/**/*.test.ts",
       "open-sse/services/**/__tests__/**/*.test.ts",
       "tests/e2e/ecosystem.test.ts",
-<<<<<<< HEAD
     ],
     exclude: ["**/node_modules/**", "**/.git/**"],
-=======
-      "tests/e2e/protocol-clients.test.ts",
-    ],
-    exclude: [
-      "**/node_modules/**",
-      "**/.git/**",
-      "open-sse/services/autoCombo/__tests__/providerDiversity.test.ts",
-    ],
->>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     coverage: {
       reportsDirectory: "coverage",
     },
