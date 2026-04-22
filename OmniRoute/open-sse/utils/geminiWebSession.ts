@@ -491,6 +491,16 @@ function extractCurlCommands(input: string): string[] {
   return matches.map((entry) => entry.trim()).filter(Boolean);
 }
 
+function normalizeCurlCommandForParsing(input: string): string {
+  let normalized = input.replace(/\\\r?\n[ \t]*/g, " ");
+  for (let index = 0; index < 4; index += 1) {
+    const next = normalized.replace(/\\"/g, '"').replace(/\\'/g, "'");
+    if (next === normalized) break;
+    normalized = next;
+  }
+  return normalized;
+}
+
 function extractCurlMethod(input: string): string {
   const explicit =
     /(?:^|\s)(?:-X|--request)\s+\$?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([A-Za-z]+))/ms.exec(
@@ -559,7 +569,8 @@ function extractGeminiStreamRequestTemplate(fReqValue: string | null): string | 
 }
 
 function parseGeminiCapturedCurlRequest(command: string): GeminiWebCapturedCurlRequest | null {
-  const targetUrl = extractCurlTargetUrl(command);
+  const normalizedCommand = normalizeCurlCommandForParsing(command);
+  const targetUrl = extractCurlTargetUrl(normalizedCommand);
   if (!targetUrl) return null;
 
   let parsedUrl: URL;
@@ -573,9 +584,9 @@ function parseGeminiCapturedCurlRequest(command: string): GeminiWebCapturedCurlR
     return null;
   }
 
-  const headers = extractHeadersFromCurlCommand(command);
+  const headers = extractHeadersFromCurlCommand(normalizedCommand);
   const requestHeaders = normalizeForwardedHeaders(headers);
-  const rawBody = extractCurlRawBody(command);
+  const rawBody = extractCurlRawBody(normalizedCommand);
   const queryParams = parseSearchParamsRecord(parsedUrl.search);
   const formParams = parseSearchParamsRecord(rawBody);
   const routePrefix = parseRoutePrefixFromUrl(parsedUrl.toString());
@@ -588,7 +599,7 @@ function parseGeminiCapturedCurlRequest(command: string): GeminiWebCapturedCurlR
 
   return {
     url: parsedUrl.toString(),
-    method: extractCurlMethod(command),
+    method: extractCurlMethod(normalizedCommand),
     headers,
     requestHeaders,
     rawBody,
