@@ -1,0 +1,17 @@
+{
+  "gateway": {
+    "controlUi": {
+      "allowedOrigins": [
+        "https://openclaw.localagent.server:8443"
+      ],
+      "dangerouslyDisableDeviceAuth": false
+    },
+    "trustedProxies": [
+      "172.19.0.2/32"
+    ]
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.4.10",
+    "lastTouchedAt": "2026-04-21T22:16:54.016Z"
+  }
+}

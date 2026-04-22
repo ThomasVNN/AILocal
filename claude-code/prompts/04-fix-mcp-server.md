@@ -79,7 +79,7 @@ git rebase --continue
 ### Step 3: Prevent future leaks
 
 ```bash
-echo ".mcpregistry_github_token" >> .gitignore
-echo ".mcpregistry_registry_token" >> .gitignore
-git add .gitignore && git commit -m "chore: gitignore token files"
+#echo ".mcpregistry_github_token" >> .gitignore
+#echo ".mcpregistry_registry_token" >> .gitignore
+#git add .gitignore && git commit -m "chore: gitignore token files"
 ```
