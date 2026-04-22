@@ -28,13 +28,14 @@ interface ProviderConnectionLike {
   authType?: string;
   accessToken?: string;
   refreshToken?: string;
+  expiresAt?: string;
   tokenExpiresAt?: string;
   providerSpecificData?: JsonRecord;
   testStatus?: string;
   isActive?: boolean;
 }
 
-const PROVIDER_LIMITS_APIKEY_PROVIDERS = new Set(["glm"]);
+const PROVIDER_LIMITS_APIKEY_PROVIDERS = new Set(["glm", "glmt"]);
 const DEFAULT_PROVIDER_LIMITS_SYNC_INTERVAL_MINUTES = 70;
 const PROVIDER_LIMITS_AUTO_SYNC_SETTING_KEY = "provider_limits_auto_sync_last_run";
 
@@ -90,7 +91,7 @@ async function refreshAndUpdateCredentials(connection: ProviderConnectionLike) {
   const credentials = {
     accessToken: connection.accessToken,
     refreshToken: connection.refreshToken,
-    expiresAt: connection.tokenExpiresAt,
+    expiresAt: connection.tokenExpiresAt || connection.expiresAt || null,
     providerSpecificData: connection.providerSpecificData,
     copilotToken: connection.providerSpecificData?.copilotToken,
     copilotTokenExpiresAt: connection.providerSpecificData?.copilotTokenExpiresAt,
@@ -123,8 +124,11 @@ async function refreshAndUpdateCredentials(connection: ProviderConnectionLike) {
     updateData.refreshToken = refreshResult.refreshToken;
   }
   if (refreshResult.expiresIn) {
-    updateData.tokenExpiresAt = new Date(Date.now() + refreshResult.expiresIn * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + refreshResult.expiresIn * 1000).toISOString();
+    updateData.expiresAt = expiresAt;
+    updateData.tokenExpiresAt = expiresAt;
   } else if (refreshResult.expiresAt) {
+    updateData.expiresAt = refreshResult.expiresAt;
     updateData.tokenExpiresAt = refreshResult.expiresAt;
   }
   if (refreshResult.copilotToken || refreshResult.copilotTokenExpiresAt) {

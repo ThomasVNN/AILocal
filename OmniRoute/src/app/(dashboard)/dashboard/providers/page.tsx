@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import PropTypes from "prop-types";
@@ -14,18 +14,26 @@ import {
   Select,
   Toggle,
 } from "@/shared/components";
-import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 import {
   FREE_PROVIDERS,
+  OAUTH_PROVIDERS,
   isAnthropicCompatibleProvider,
   isClaudeCodeCompatibleProvider,
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 import Link from "next/link";
 import { getErrorCode, getRelativeTime } from "@/shared/utils";
+import { pickDisplayValue } from "@/shared/utils/maskEmail";
+import useEmailPrivacyStore from "@/store/emailPrivacyStore";
 import { useNotificationStore } from "@/store/notificationStore";
 import ModelAvailabilityBadge from "./components/ModelAvailabilityBadge";
 import { useTranslations } from "next-intl";
+import {
+  buildMergedOAuthProviderEntries,
+  buildStaticProviderEntries,
+  filterConfiguredProviderEntries,
+} from "./providerPageUtils";
+import { readConfiguredOnlyPreference, writeConfiguredOnlyPreference } from "./providerPageStorage";
 
 const CC_COMPATIBLE_LABEL = "CC Compatible";
 const ADD_CC_COMPATIBLE_LABEL = "Add CC Compatible";
@@ -109,9 +117,21 @@ export default function ProvidersPage() {
   const [testingMode, setTestingMode] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<any>(null);
   const [importingZed, setImportingZed] = useState(false);
+  const [showConfiguredOnly, setShowConfiguredOnly] = useState(false);
+  const [configuredOnlyPreferenceReady, setConfiguredOnlyPreferenceReady] = useState(false);
+  const [oauthEnvRepairStatus, setOauthEnvRepairStatus] = useState<{
+    available: boolean;
+    missingCount: number;
+  } | null>(null);
+  const [repairingEnv, setRepairingEnv] = useState(false);
   const notify = useNotificationStore();
   const t = useTranslations("providers");
   const tc = useTranslations("common");
+
+  useEffect(() => {
+    setShowConfiguredOnly(readConfiguredOnlyPreference());
+    setConfiguredOnlyPreferenceReady(true);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -139,6 +159,33 @@ export default function ProvidersPage() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (!configuredOnlyPreferenceReady) return;
+
+    writeConfiguredOnlyPreference(showConfiguredOnly);
+  }, [configuredOnlyPreferenceReady, showConfiguredOnly]);
+
+  const fetchOauthEnvRepairStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/system/env/repair", { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok) {
+        setOauthEnvRepairStatus({
+          available: Boolean(data.available),
+          missingCount: Number(data.missingCount || 0),
+        });
+      } else {
+        setOauthEnvRepairStatus(null);
+      }
+    } catch {
+      setOauthEnvRepairStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchOauthEnvRepairStatus();
+  }, [fetchOauthEnvRepairStatus]);
+
   const handleZedImport = async () => {
     setImportingZed(true);
     try {
@@ -163,6 +210,30 @@ export default function ProvidersPage() {
       notify.error("Network error while trying to import from Zed.");
     } finally {
       setImportingZed(false);
+    }
+  };
+
+  const handleRepairEnv = async () => {
+    if (!oauthEnvRepairStatus?.available || repairingEnv) return;
+
+    setRepairingEnv(true);
+    try {
+      const res = await fetch("/api/system/env/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || t("repairEnvFailed"));
+      }
+      notify.success(
+        data.backupPath ? `${t("repairEnvSuccess")} (${data.backupPath})` : t("repairEnvSuccess")
+      );
+      await fetchOauthEnvRepairStatus();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : t("repairEnvFailed"));
+    } finally {
+      setRepairingEnv(false);
     }
   };
 
@@ -320,6 +391,58 @@ export default function ProvidersPage() {
       textIcon: "CC",
     }));
 
+  const oauthProviderEntries = filterConfiguredProviderEntries(
+    buildMergedOAuthProviderEntries(OAUTH_PROVIDERS, FREE_PROVIDERS, getProviderStats),
+    showConfiguredOnly
+  );
+
+  const apiKeyProviderEntries = filterConfiguredProviderEntries(
+    buildStaticProviderEntries("apikey", getProviderStats),
+    showConfiguredOnly
+  );
+
+  const webCookieProviderEntries = filterConfiguredProviderEntries(
+    buildStaticProviderEntries("web-cookie", getProviderStats),
+    showConfiguredOnly
+  );
+
+  const searchProviderEntries = filterConfiguredProviderEntries(
+    buildStaticProviderEntries("search", getProviderStats),
+    showConfiguredOnly
+  );
+
+  const audioProviderEntries = filterConfiguredProviderEntries(
+    buildStaticProviderEntries("audio", getProviderStats),
+    showConfiguredOnly
+  );
+
+  const compatibleProviderEntries = filterConfiguredProviderEntries(
+    [
+      ...compatibleProviders.map((provider) => ({
+        providerId: provider.id,
+        provider,
+        stats: getProviderStats(provider.id, "apikey"),
+        displayAuthType: "compatible" as const,
+        toggleAuthType: "apikey" as const,
+      })),
+      ...anthropicCompatibleProviders.map((provider) => ({
+        providerId: provider.id,
+        provider,
+        stats: getProviderStats(provider.id, "apikey"),
+        displayAuthType: "compatible" as const,
+        toggleAuthType: "apikey" as const,
+      })),
+      ...ccCompatibleProviders.map((provider) => ({
+        providerId: provider.id,
+        provider,
+        stats: getProviderStats(provider.id, "apikey"),
+        displayAuthType: "compatible" as const,
+        toggleAuthType: "apikey" as const,
+      })),
+    ],
+    showConfiguredOnly
+  );
+
   if (loading) {
     return (
       <div className="flex flex-col gap-8">
@@ -365,7 +488,7 @@ export default function ProvidersPage() {
           </div>
         )}
 
-      {/* OAuth Providers */}
+      {/* OAuth Providers (including providers that expose free tiers via OAuth) */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
@@ -374,6 +497,13 @@ export default function ProvidersPage() {
           </h2>
           <div className="flex items-center gap-2">
             <ModelAvailabilityBadge />
+            <Toggle
+              size="sm"
+              checked={showConfiguredOnly}
+              onChange={setShowConfiguredOnly}
+              label={t("showConfiguredOnly")}
+              className="rounded-lg border border-border bg-bg-subtle px-3 py-1.5"
+            />
             <button
               onClick={handleZedImport}
               disabled={importingZed}
@@ -387,6 +517,24 @@ export default function ProvidersPage() {
               </span>
               {importingZed ? "Importing..." : "Import from Zed"}
             </button>
+            {oauthEnvRepairStatus?.available && oauthEnvRepairStatus.missingCount > 0 && (
+              <button
+                onClick={handleRepairEnv}
+                disabled={repairingEnv}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  repairingEnv
+                    ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
+                    : "bg-bg-subtle border-border text-text-muted hover:text-text-primary hover:border-primary/40"
+                }`}
+                title={t("repairEnvHint")}
+                aria-label={t("repairEnv")}
+              >
+                <span className="material-symbols-outlined text-[14px]">
+                  {repairingEnv ? "sync" : "settings_backup_restore"}
+                </span>
+                {repairingEnv ? t("repairEnvWorking") : t("repairEnv")}
+              </button>
+            )}
             <button
               onClick={() => handleBatchTest("oauth")}
               disabled={!!testingMode}
@@ -406,54 +554,18 @@ export default function ProvidersPage() {
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Object.entries(OAUTH_PROVIDERS).map(([key, info]) => (
-            <ProviderCard
-              key={key}
-              providerId={key}
-              provider={info}
-              stats={getProviderStats(key, "oauth")}
-              authType="oauth"
-              onToggle={(active) => handleToggleProvider(key, "oauth", active)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Free Providers */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
-            {t("freeProviders")}{" "}
-            <span className="size-2.5 rounded-full bg-green-500" title={tc("free")} />
-          </h2>
-          <button
-            onClick={() => handleBatchTest("free")}
-            disabled={!!testingMode}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              testingMode === "free"
-                ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
-                : "bg-bg-subtle border-border text-text-muted hover:text-text-primary hover:border-primary/40"
-            }`}
-            title={t("testAllFree")}
-            aria-label={t("testAllFree")}
-          >
-            <span className="material-symbols-outlined text-[14px]">
-              {testingMode === "free" ? "sync" : "play_arrow"}
-            </span>
-            {testingMode === "free" ? t("testing") : t("testAll")}
-          </button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Object.entries(FREE_PROVIDERS).map(([key, info]) => (
-            <ProviderCard
-              key={key}
-              providerId={key}
-              provider={info}
-              stats={getProviderStats(key, "free")}
-              authType="free"
-              onToggle={(active) => handleToggleProvider(key, "free", active)}
-            />
-          ))}
+          {oauthProviderEntries.map(
+            ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+              <ProviderCard
+                key={providerId}
+                providerId={providerId}
+                provider={provider}
+                stats={stats}
+                authType={displayAuthType}
+                onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+              />
+            )
+          )}
         </div>
       </div>
 
@@ -482,18 +594,141 @@ export default function ProvidersPage() {
           </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Object.entries(APIKEY_PROVIDERS).map(([key, info]) => (
-            <ApiKeyProviderCard
-              key={key}
-              providerId={key}
-              provider={info}
-              stats={getProviderStats(key, "apikey")}
-              authType="apikey"
-              onToggle={(active) => handleToggleProvider(key, "apikey", active)}
-            />
-          ))}
+          {apiKeyProviderEntries.map(
+            ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+              <ApiKeyProviderCard
+                key={providerId}
+                providerId={providerId}
+                provider={provider}
+                stats={stats}
+                authType={displayAuthType}
+                onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+              />
+            )
+          )}
         </div>
       </div>
+
+      {/* Web / Cookie Providers */}
+      {webCookieProviderEntries.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
+              Web / Cookie Providers{" "}
+              <span className="size-2.5 rounded-full bg-purple-500" title="Web/Cookie" />
+            </h2>
+            <button
+              onClick={() => handleBatchTest("web-cookie")}
+              disabled={!!testingMode}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                testingMode === "web-cookie"
+                  ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
+                  : "bg-bg-subtle border-border text-text-muted hover:text-text-primary hover:border-primary/40"
+              }`}
+              title={t("testAll")}
+            >
+              <span className="material-symbols-outlined text-[14px]">
+                {testingMode === "web-cookie" ? "sync" : "play_arrow"}
+              </span>
+              {testingMode === "web-cookie" ? t("testing") : t("testAll")}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {webCookieProviderEntries.map(
+              ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+                <ApiKeyProviderCard
+                  key={providerId}
+                  providerId={providerId}
+                  provider={provider}
+                  stats={stats}
+                  authType={displayAuthType}
+                  onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+                />
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Search Providers */}
+      {searchProviderEntries.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
+              Search Providers <span className="size-2.5 rounded-full bg-teal-500" title="Search" />
+            </h2>
+            <button
+              onClick={() => handleBatchTest("search")}
+              disabled={!!testingMode}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                testingMode === "search"
+                  ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
+                  : "bg-bg-subtle border-border text-text-muted hover:text-text-primary hover:border-primary/40"
+              }`}
+              title={t("testAll")}
+            >
+              <span className="material-symbols-outlined text-[14px]">
+                {testingMode === "search" ? "sync" : "play_arrow"}
+              </span>
+              {testingMode === "search" ? t("testing") : t("testAll")}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {searchProviderEntries.map(
+              ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+                <ApiKeyProviderCard
+                  key={providerId}
+                  providerId={providerId}
+                  provider={provider}
+                  stats={stats}
+                  authType={displayAuthType}
+                  onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+                />
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Audio Only Providers */}
+      {audioProviderEntries.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
+              Audio Providers <span className="size-2.5 rounded-full bg-rose-500" title="Audio" />
+            </h2>
+            <button
+              onClick={() => handleBatchTest("audio")}
+              disabled={!!testingMode}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                testingMode === "audio"
+                  ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
+                  : "bg-bg-subtle border-border text-text-muted hover:text-text-primary hover:border-primary/40"
+              }`}
+              title={t("testAll")}
+            >
+              <span className="material-symbols-outlined text-[14px]">
+                {testingMode === "audio" ? "sync" : "play_arrow"}
+              </span>
+              {testingMode === "audio" ? t("testing") : t("testAll")}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {audioProviderEntries.map(
+              ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+                <ApiKeyProviderCard
+                  key={providerId}
+                  providerId={providerId}
+                  provider={provider}
+                  stats={stats}
+                  authType={displayAuthType}
+                  onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+                />
+              )
+            )}
+          </div>
+        </div>
+      )}
 
       {/* API Key Compatible Providers — dynamic (OpenAI/Anthropic compatible) */}
       <div className="flex flex-col gap-4">
@@ -547,20 +782,18 @@ export default function ProvidersPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {[
-              ...compatibleProviders,
-              ...anthropicCompatibleProviders,
-              ...ccCompatibleProviders,
-            ].map((info) => (
-              <ApiKeyProviderCard
-                key={info.id}
-                providerId={info.id}
-                provider={info}
-                stats={getProviderStats(info.id, "apikey")}
-                authType="compatible"
-                onToggle={(active) => handleToggleProvider(info.id, "apikey", active)}
-              />
-            ))}
+            {compatibleProviderEntries.map(
+              ({ providerId, provider, stats, displayAuthType, toggleAuthType }) => (
+                <ApiKeyProviderCard
+                  key={providerId}
+                  providerId={providerId}
+                  provider={provider}
+                  stats={stats}
+                  authType={displayAuthType}
+                  onToggle={(active) => handleToggleProvider(providerId, toggleAuthType, active)}
+                />
+              )
+            )}
           </div>
         )}
       </div>
@@ -910,6 +1143,10 @@ function AddOpenAICompatibleModal({ isOpen, onClose, onCreated }) {
   const apiTypeOptions = [
     { value: "chat", label: t("chatCompletions") },
     { value: "responses", label: t("responsesApi") },
+    { value: "embeddings", label: t("embeddings") },
+    { value: "audio-transcriptions", label: t("audioTranscriptions") },
+    { value: "audio-speech", label: t("audioSpeech") },
+    { value: "images-generations", label: t("imagesGenerations") },
   ];
 
   useEffect(() => {
@@ -1474,6 +1711,7 @@ AddCcCompatibleModal.propTypes = {
 function ProviderTestResultsView({ results }) {
   const t = useTranslations("providers");
   const tc = useTranslations("common");
+  const emailsVisible = useEmailPrivacyStore((s) => s.emailsVisible);
 
   // Guard: never crash on malformed/null results (would trigger error boundary)
   if (!results || typeof results !== "object") {
@@ -1541,7 +1779,9 @@ function ProviderTestResultsView({ results }) {
             {r.valid ? "check_circle" : "error"}
           </span>
           <div className="flex-1 min-w-0">
-            <span className="font-medium">{r.connectionName}</span>
+            <span className="font-medium">
+              {pickDisplayValue([r.connectionName], emailsVisible, r.connectionName)}
+            </span>
             <span className="text-text-muted ml-1.5">({r.provider})</span>
           </div>
           {r.latencyMs !== undefined && (

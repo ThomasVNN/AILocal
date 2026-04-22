@@ -509,7 +509,8 @@ function buildGeminiValidationError(statusCode: number | null): {
   if (statusCode === 401 || statusCode === 403) {
     return {
       errorCode: "invalid_credentials",
-      error: "Gemini web-session credentials are invalid or expired. Re-import fresh browser headers or cookies.",
+      error:
+        "Gemini web-session credentials are invalid or expired. Re-import fresh browser headers or cookies.",
     };
   }
 

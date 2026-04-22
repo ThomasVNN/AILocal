@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
+<<<<<<< HEAD
+=======
+  workflow_dispatch:
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,6 +17,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  CI_NODE_VERSION: "24"
+  CI_NODE_24_VERSION: "24"
 
 jobs:
   lint:
@@ -22,9 +30,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run check:node-runtime
       - run: npm run lint
       - run: npm run check:cycles
       - run: npm run check:route-validation:t06
@@ -78,6 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+<<<<<<< HEAD
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v6
@@ -111,17 +121,67 @@ jobs:
           extra_args: --only-verified
 
       - uses: actions/setup-node@v6
+=======
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
         with:
-          node-version: 22
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF}" --depth=1
+      - name: Validate source changes include tests
+        run: node scripts/check-pr-test-policy.mjs --summary-file .artifacts/pr-test-policy.md
+      - name: Publish PR test policy summary
+        if: always()
+        run: |
+          if [ -f .artifacts/pr-test-policy.md ]; then
+            cat .artifacts/pr-test-policy.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  advanced-security:
+    name: Advanced Security Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.before || github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
 
       - run: npm ci
+<<<<<<< HEAD
 
       - name: Dependency audit
         run: npm audit --audit-level=high --omit=dev || true
+=======
+      - run: npm run check:node-runtime
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high --omit=dev
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
       - name: Check for known vulnerabilities
-        run: npx is-my-node-vulnerable || true
+        run: npx is-my-node-vulnerable
+
+      - name: Run Snyk Vulnerability checks
+        if: github.actor != 'dependabot[bot]'
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
 
       - name: Run Snyk Vulnerability checks
         if: github.actor != 'dependabot[bot]'
@@ -134,53 +194,105 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run check:node-runtime
       - run: npm run build
 
+  package-artifact:
+    name: Package Artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    env:
+      JWT_SECRET: ci-build-secret-with-sufficient-length-for-validation
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check:node-runtime
+      - run: npm run build:cli
+      - run: npm run check:pack-artifact
+
   test-unit:
-    name: Unit Tests
+    name: Unit Tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [20, 22]
+        shard: [1, 2]
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: npm run test:unit
+      - run: npm run check:node-runtime
+      - run: node --import tsx/esm --test --test-concurrency=1 --test-shard=${{ matrix.shard }}/2 tests/unit/*.test.ts
+
+  node-24-compat:
+    name: Node 24 Compatibility (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
+      API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.CI_NODE_24_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check:node-runtime
+      - run: npm run build
+      - run: node --import tsx/esm --test --test-concurrency=1 --test-shard=${{ matrix.shard }}/2 tests/unit/*.test.ts
 
   test-coverage:
     name: Coverage
     runs-on: ubuntu-latest
+<<<<<<< HEAD
     timeout-minutes: 15
+=======
+    timeout-minutes: 30
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     needs: build
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
+<<<<<<< HEAD
+=======
+      - run: npm run check:node-runtime
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
       - name: Run coverage gate
         run: npm run test:coverage
       - name: Build coverage summary
@@ -317,46 +429,72 @@ jobs:
             }
 
   test-e2e:
+<<<<<<< HEAD
     name: E2E Tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+=======
+    name: E2E Tests (${{ matrix.shard }}/6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     needs: build
     strategy:
       fail-fast: false
       matrix:
+<<<<<<< HEAD
         shard: [1, 2, 3, 4]
+=======
+        shard: [1, 2, 3, 4, 5, 6]
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run check:node-runtime
       - run: npx playwright install --with-deps chromium
       - run: npm run build
+<<<<<<< HEAD
       - run: npx playwright test tests/e2e/*.spec.ts --shard=${{ matrix.shard }}/4
+=======
+      - run: npx playwright test tests/e2e/*.spec.ts --shard=${{ matrix.shard }}/6
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
   test-integration:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
+<<<<<<< HEAD
     timeout-minutes: 10
+=======
+    timeout-minutes: 15
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
       INITIAL_PASSWORD: ci-test-password-for-integration
-      DATA_DIR: /tmp/omniroute-ci
+      DATA_DIR: /tmp/omniroute-ci-${{ matrix.shard }}
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: npm run test:integration
+      - run: npm run check:node-runtime
+      - run: node --import tsx/esm --test --test-shard=${{ matrix.shard }}/2 tests/integration/*.test.ts
 
   test-security:
     name: Security Tests
@@ -365,13 +503,15 @@ jobs:
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run check:node-runtime
       - run: npm run test:security
 
   ci-summary:
@@ -384,7 +524,9 @@ jobs:
       - pr-test-policy
       - advanced-security
       - build
+      - package-artifact
       - test-unit
+      - node-24-compat
       - test-coverage
       - sonarqube
       - coverage-pr-comment
@@ -430,6 +572,10 @@ jobs:
           echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Build Matrix | $(status '${{ needs.build.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+<<<<<<< HEAD
+=======
+          echo "| Package Artifact | $(status '${{ needs.package-artifact.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "## 🧪 Tests" >> "$GITHUB_STEP_SUMMARY"

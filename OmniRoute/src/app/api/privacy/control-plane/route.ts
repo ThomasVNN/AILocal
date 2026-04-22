@@ -9,7 +9,12 @@ import {
 const settingsSchema = z
   .object({
     vaultEnabled: z.boolean().optional(),
-    tokenTtlSeconds: z.number().int().min(60).max(60 * 60 * 24 * 30).optional(),
+    tokenTtlSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(60 * 60 * 24 * 30)
+      .optional(),
     autoExpireRestoreTokens: z.boolean().optional(),
     encryptionRequired: z.boolean().optional(),
     keyRotationDays: z.number().int().min(1).max(365).optional(),

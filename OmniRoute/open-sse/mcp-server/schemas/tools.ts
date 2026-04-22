@@ -113,6 +113,7 @@ export const listCombosOutput = z.object({
         "priority",
         "weighted",
         "round-robin",
+        "context-relay",
         "strict-random",
         "random",
         "least-used",
@@ -405,7 +406,7 @@ export const webSearchInput = z.object({
   query: z
     .string()
     .min(1, "Query is required")
-    .max(1000, "Query must be 1000 characters or fewer")
+    .max(500, "Query must be 500 characters or fewer")
     .describe("The search query string"),
   max_results: z
     .number()
@@ -416,9 +417,19 @@ export const webSearchInput = z.object({
     .describe("Maximum number of search results to return"),
   search_type: z.enum(["web", "news"]).default("web").describe("Type of search to perform"),
   provider: z
-    .string()
+    .enum([
+      "serper-search",
+      "brave-search",
+      "perplexity-search",
+      "exa-search",
+      "tavily-search",
+      "google-pse-search",
+      "linkup-search",
+      "searchapi-search",
+      "searxng-search",
+    ])
     .optional()
-    .describe("Specific search provider to use (serper, brave, perplexity, exa, tavily)"),
+    .describe("Specific search provider to use"),
 });
 
 export const webSearchOutput = z.object({
@@ -444,7 +455,7 @@ export const webSearchOutput = z.object({
 export const webSearchTool: McpToolDefinition<typeof webSearchInput, typeof webSearchOutput> = {
   name: "omniroute_web_search",
   description:
-    "Performs a web search using OmniRoute's search gateway. Supports multiple providers (Serper, Brave, Perplexity, Exa, Tavily) with automatic failover. Returns search results with titles, URLs, snippets, and position data.",
+    "Performs a web search using OmniRoute's search gateway. Supports multiple providers (Serper, Brave, Perplexity, Exa, Tavily, Google PSE, Linkup, SearchAPI, SearXNG) with automatic failover. Returns search results with titles, URLs, snippets, and position data.",
   inputSchema: webSearchInput,
   outputSchema: webSearchOutput,
   scopes: ["execute:search"],
@@ -538,6 +549,7 @@ export const setRoutingStrategyInput = z.object({
       "priority",
       "weighted",
       "round-robin",
+      "context-relay",
       "strict-random",
       "random",
       "least-used",
@@ -829,7 +841,51 @@ export const getSessionSnapshotTool: McpToolDefinition<
   sourceEndpoints: ["/api/usage/analytics", "/api/telemetry/summary"],
 };
 
-// --- Tool 18: omniroute_sync_pricing ---
+// --- Tool 18: omniroute_db_health_check ---
+export const dbHealthCheckInput = z.object({
+  autoRepair: z
+    .boolean()
+    .optional()
+    .describe("When true, runs the database auto-repair flow before returning the result"),
+});
+
+export const dbHealthCheckOutput = z.object({
+  isHealthy: z.boolean(),
+  issues: z.array(
+    z.object({
+      type: z.enum([
+        "integrity_check_failed",
+        "broken_reference",
+        "stale_snapshot",
+        "invalid_state",
+      ]),
+      table: z.string(),
+      description: z.string(),
+      count: z.number(),
+    })
+  ),
+  repairedCount: z.number(),
+  backupCreated: z.boolean(),
+  autoRepair: z.boolean(),
+  checkedAt: z.string(),
+});
+
+export const dbHealthCheckTool: McpToolDefinition<
+  typeof dbHealthCheckInput,
+  typeof dbHealthCheckOutput
+> = {
+  name: "omniroute_db_health_check",
+  description:
+    "Diagnoses OmniRoute database drift such as orphan quota/domain rows, invalid JSON state, and broken combo references. Set autoRepair=true to repair those rows before returning the report.",
+  inputSchema: dbHealthCheckInput,
+  outputSchema: dbHealthCheckOutput,
+  scopes: ["read:health", "write:resilience"],
+  auditLevel: "full",
+  phase: 2,
+  sourceEndpoints: ["/api/v1/db/health"],
+};
+
+// --- Tool 19: omniroute_sync_pricing ---
 export const syncPricingInput = z.object({
   sources: z
     .array(z.string())
@@ -882,8 +938,10 @@ export const cacheStatsOutput = z.object({
     .object({
       totalRequests: z.number(),
       requestsWithCacheControl: z.number(),
+      totalInputTokens: z.number(),
       totalCachedTokens: z.number(),
       totalCacheCreationTokens: z.number(),
+      tokensSaved: z.number(),
       estimatedCostSaved: z.number(),
     })
     .nullable(),
@@ -891,6 +949,11 @@ export const cacheStatsOutput = z.object({
     activeKeys: z.number(),
     windowMs: z.number(),
   }),
+  config: z
+    .object({
+      semanticCacheEnabled: z.boolean(),
+    })
+    .optional(),
 });
 
 export const cacheStatsTool: McpToolDefinition<typeof cacheStatsInput, typeof cacheStatsOutput> = {
@@ -950,6 +1013,7 @@ export const MCP_TOOLS = [
   bestComboForTaskTool,
   explainRouteTool,
   getSessionSnapshotTool,
+  dbHealthCheckTool,
   syncPricingTool,
   cacheStatsTool,
   cacheFlushTool,

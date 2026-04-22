@@ -23,7 +23,11 @@ import {
   formatProviderError,
 } from "../utils/error.ts";
 import { HTTP_STATUS, PROVIDER_MAX_TOKENS } from "../config/constants.ts";
-import { classifyProviderError, PROVIDER_ERROR_TYPES } from "../services/errorClassifier.ts";
+import {
+  classifyProviderError,
+  PROVIDER_ERROR_TYPES,
+  isEmptyContentResponse,
+} from "../services/errorClassifier.ts";
 import { updateProviderConnection } from "@/lib/db/providers";
 import { isDetailedLoggingEnabled } from "@/lib/db/detailedLogs";
 import { logAuditEvent } from "@/lib/compliance";
@@ -41,6 +45,7 @@ import {
 } from "@/lib/usage/tokenAccounting";
 import { recordCost } from "@/domain/costRules";
 import { calculateCost } from "@/lib/usage/costCalculator";
+import { buildOmniRouteResponseMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { CLAUDE_OAUTH_TOOL_PREFIX } from "../translator/request/openai-to-claude.ts";
 import {
   getModelNormalizeToolCallId,
@@ -50,17 +55,25 @@ import {
 } from "@/lib/localDb";
 import { getExecutor } from "../executors/index.ts";
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";
+import { guardrailRegistry, resolveDisabledGuardrails } from "@/lib/guardrails";
+import {
+  applyConfiguredPayloadRules,
+  resolvePayloadRuleProtocols,
+} from "../services/payloadRules.ts";
 import {
   shouldPreserveCacheControl,
   providerSupportsCaching,
 } from "../utils/cacheControlPolicy.ts";
 import { getCacheMetrics } from "@/lib/db/settings.ts";
+import { getCachedSettings } from "@/lib/db/readCache";
 
 import {
   parseCodexQuotaHeaders,
   getCodexResetTime,
   getCodexModelScope,
+  getCodexDualWindowCooldownMs,
 } from "../executors/codex.ts";
+import { invalidateCodexQuotaCache } from "../services/codexQuotaFetcher.ts";
 import { translateNonStreamingResponse } from "./responseTranslator.ts";
 import { extractUsageFromResponse } from "./usageExtractor.ts";
 import {
@@ -69,22 +82,31 @@ import {
   parseSSEToPerplexityWeb2ApiResponse,
   parseSSEToResponsesOutput,
 } from "./sseParser.ts";
-import { sanitizeOpenAIResponse } from "./responseSanitizer.ts";
+import { sanitizeOpenAIResponse, sanitizeResponsesApiResponse } from "./responseSanitizer.ts";
 import {
   withRateLimit,
   updateFromHeaders,
+  updateFromResponseBody,
   initializeRateLimits,
 } from "../services/rateLimitManager.ts";
 import {
   generateSignature,
   getCachedResponse,
   setCachedResponse,
-  isCacheable,
+  isCacheableForRead,
+  isCacheableForWrite,
 } from "@/lib/semanticCache";
 import { getIdempotencyKey, checkIdempotency, saveIdempotency } from "@/lib/idempotencyLayer";
 import { createProgressTransform, wantsProgress } from "../utils/progressTracker.ts";
-import { isModelUnavailableError, getNextFamilyFallback } from "../services/modelFamilyFallback.ts";
+import {
+  isModelUnavailableError,
+  getNextFamilyFallback,
+  isContextOverflowError,
+  findLargerContextModel,
+  getModelFamily,
+} from "../services/modelFamilyFallback.ts";
 import { computeRequestHash, deduplicate, shouldDeduplicate } from "../services/requestDedup.ts";
+import { compressContext, estimateTokens, getTokenLimit } from "../services/contextManager.ts";
 import {
   getBackgroundTaskReason,
   getDegradedModel,
@@ -95,16 +117,131 @@ import {
   isFallbackDecision,
   EMERGENCY_FALLBACK_CONFIG,
 } from "../services/emergencyFallback.ts";
-import { resolveStreamFlag, stripMarkdownCodeFence } from "../utils/aiSdkCompat.ts";
+import { prepareWebSearchFallbackBody } from "../services/webSearchFallback.ts";
+import {
+  resolveExplicitStreamAlias,
+  resolveStreamFlag,
+  stripMarkdownCodeFence,
+} from "../utils/aiSdkCompat.ts";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { normalizePayloadForLog } from "@/lib/logPayloads";
+import { extractFacts } from "@/lib/memory/extraction";
 import { injectMemory, shouldInjectMemory } from "@/lib/memory/injection";
 import { retrieveMemories } from "@/lib/memory/retrieval";
+import {
+  DEFAULT_MEMORY_SETTINGS,
+  getMemorySettings,
+  toMemoryRetrievalConfig,
+} from "@/lib/memory/settings";
+import { injectSkills } from "@/lib/skills/injection";
+import { handleToolCallExecution } from "@/lib/skills/interception";
+import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import {
   buildClaudeCodeCompatibleRequest,
   isClaudeCodeCompatibleProvider,
   resolveClaudeCodeCompatibleSessionId,
 } from "../services/claudeCodeCompatible.ts";
+import { setGeminiThoughtSignatureMode } from "../services/geminiThoughtSignatureStore.ts";
+
+function extractMemoryTextFromResponse(
+  response: Record<string, unknown> | null | undefined
+): string {
+  if (!response || typeof response !== "object") return "";
+
+  const openAIText = response?.choices?.[0]?.message?.content;
+  if (typeof openAIText === "string") {
+    return openAIText.trim();
+  }
+
+  if (Array.isArray(response?.content)) {
+    const contentText = response.content
+      .filter(
+        (part: Record<string, unknown>) => part?.type === "text" && typeof part?.text === "string"
+      )
+      .map((part: Record<string, unknown>) => String(part.text).trim())
+      .filter(Boolean)
+      .join("\n");
+    if (contentText) return contentText;
+  }
+
+  if (typeof response?.output_text === "string") {
+    return response.output_text.trim();
+  }
+
+  return "";
+}
+
+function extractMemoryTextFromRequestBody(
+  body: Record<string, unknown> | null | undefined
+): string {
+  if (!body || typeof body !== "object") return "";
+
+  const messages = Array.isArray(body.messages) ? body.messages : null;
+  if (messages && messages.length > 0) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i] as Record<string, unknown>;
+      if (msg?.role !== "user") continue;
+
+      if (typeof msg.content === "string" && msg.content.trim().length > 0) {
+        return msg.content.trim();
+      }
+
+      if (Array.isArray(msg.content)) {
+        const text = msg.content
+          .map((part: Record<string, unknown>) => {
+            if (typeof part?.text === "string") return part.text.trim();
+            if (part?.type === "input_text" && typeof part?.text === "string")
+              return part.text.trim();
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+        if (text) return text;
+      }
+    }
+  }
+
+  const input = Array.isArray(body.input) ? body.input : null;
+  if (input && input.length > 0) {
+    const chunks = input
+      .map((item: Record<string, unknown>) => {
+        const role = typeof item?.role === "string" ? item.role.trim().toLowerCase() : "";
+        const itemType = typeof item?.type === "string" ? item.type.trim().toLowerCase() : "";
+        if (role && role !== "user") return "";
+        if (itemType && itemType !== "message") return "";
+
+        if (typeof item?.content === "string") return item.content.trim();
+        if (Array.isArray(item?.content)) {
+          return item.content
+            .map((part: Record<string, unknown>) => {
+              if (typeof part?.text === "string") return part.text.trim();
+              if (part?.type === "input_text" && typeof part?.text === "string")
+                return part.text.trim();
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (chunks) return chunks;
+  }
+
+  return "";
+}
+
+function resolveMemoryOwnerId(apiKeyInfo: Record<string, unknown> | null): string | null {
+  const rawId = apiKeyInfo?.id;
+  if (typeof rawId === "string" && rawId.trim().length > 0) {
+    return rawId;
+  }
+  return null;
+}
 
 export function shouldUseNativeCodexPassthrough({
   provider,
@@ -168,6 +305,107 @@ function restoreClaudePassthroughToolNames(
   };
 }
 
+function materializeDeduplicatedExecutionResult<T extends Record<string, unknown>>(result: T): T {
+  const snapshot =
+    result && typeof result === "object"
+      ? ((result as Record<string, unknown>)._dedupSnapshot as
+          | {
+              status: number;
+              statusText: string;
+              headers: [string, string][];
+              payload: string;
+            }
+          | undefined)
+      : undefined;
+
+  if (!snapshot) return result;
+
+  return {
+    ...result,
+    response: new Response(snapshot.payload, {
+      status: snapshot.status,
+      statusText: snapshot.statusText,
+      headers: snapshot.headers,
+    }),
+  } as T;
+}
+
+function getSkillsProviderForFormat(format: string): "openai" | "anthropic" | "google" | "other" {
+  switch (format) {
+    case FORMATS.CLAUDE:
+      return "anthropic";
+    case FORMATS.GEMINI:
+      return "google";
+    default:
+      return "openai";
+  }
+}
+
+function getSkillsModelIdForFormat(format: string): string {
+  switch (format) {
+    case FORMATS.CLAUDE:
+      return "claude";
+    case FORMATS.GEMINI:
+      return "gemini";
+    default:
+      return "openai";
+  }
+}
+
+function parseNonStreamingSSEPayload(
+  rawBody: string,
+  preferredFormat: string,
+  fallbackModel: string
+): { body: Record<string, unknown>; format: string } | null {
+  const formatsToTry: string[] = [];
+  const seen = new Set<string>();
+  const queueFormat = (format: string) => {
+    if (!format || seen.has(format)) return;
+    seen.add(format);
+    formatsToTry.push(format);
+  };
+
+  queueFormat(preferredFormat);
+  queueFormat(FORMATS.OPENAI_RESPONSES);
+  queueFormat(FORMATS.CLAUDE);
+  queueFormat(FORMATS.OPENAI);
+
+  for (const format of formatsToTry) {
+    const parsed =
+      format === FORMATS.OPENAI_RESPONSES
+        ? parseSSEToResponsesOutput(rawBody, fallbackModel)
+        : format === FORMATS.CLAUDE
+          ? parseSSEToClaudeResponse(rawBody, fallbackModel)
+          : parseSSEToOpenAIResponse(rawBody, fallbackModel);
+    if (parsed && typeof parsed === "object") {
+      return {
+        body: parsed as Record<string, unknown>,
+        format,
+      };
+    }
+  }
+
+  return null;
+}
+
+function convertNDJSONToSSE(rawBody: string): string {
+  const chunks = String(rawBody || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (chunks.length === 0) return rawBody;
+
+  return `${chunks.map((chunk) => `data: ${chunk}\n`).join("\n")}\n`;
+}
+
+function normalizeNonStreamingEventPayload(rawBody: string, contentType: string): string {
+  if (contentType.includes("application/x-ndjson")) {
+    return convertNDJSONToSSE(rawBody);
+  }
+  return rawBody;
+}
+
 function getHeaderValueCaseInsensitive(
   headers: Record<string, unknown> | null | undefined,
   targetName: string
@@ -204,6 +442,11 @@ function buildClaudePromptCacheLogMeta(
   const systemBreakpoints = Array.isArray(finalBody.system)
     ? finalBody.system.flatMap((block, index) => {
         if (!block || typeof block !== "object") return [];
+        const text =
+          typeof block.text === "string" && block.text.trim().length > 0 ? block.text.trim() : "";
+        if (text.startsWith("x-anthropic-billing-header:")) {
+          return [];
+        }
         const cacheControl =
           block.cache_control && typeof block.cache_control === "object"
             ? block.cache_control
@@ -346,6 +589,14 @@ function attachLogMeta(
 const _proxyConfigCache = new Map<string, { mode: string; enabled: boolean; ts: number }>();
 const PROXY_CONFIG_CACHE_TTL = 10_000;
 
+export function clearUpstreamProxyConfigCache(providerId?: string) {
+  if (providerId) {
+    _proxyConfigCache.delete(providerId);
+    return;
+  }
+  _proxyConfigCache.clear();
+}
+
 async function getUpstreamProxyConfigCached(providerId: string) {
   const cached = _proxyConfigCache.get(providerId);
   if (cached && Date.now() - cached.ts < PROXY_CONFIG_CACHE_TTL) return cached;
@@ -355,6 +606,33 @@ async function getUpstreamProxyConfigCached(providerId: string) {
     : { mode: "native" as const, enabled: false, ts: Date.now() };
   _proxyConfigCache.set(providerId, result);
   return result;
+}
+
+function buildExecutorClientHeaders(
+  headers: Headers | Record<string, unknown> | null | undefined,
+  userAgent?: string | null
+) {
+  const normalized: Record<string, string> = {};
+
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      normalized[key] = value;
+    });
+  } else if (headers && typeof headers === "object") {
+    for (const [key, value] of Object.entries(headers)) {
+      if (typeof value === "string") {
+        normalized[key] = value;
+      }
+    }
+  }
+
+  const normalizedUserAgent = typeof userAgent === "string" ? userAgent.trim() : "";
+  if (normalizedUserAgent && !normalized["user-agent"] && !normalized["User-Agent"]) {
+    normalized["user-agent"] = normalizedUserAgent;
+    normalized["User-Agent"] = normalizedUserAgent;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 export async function handleChatCore({
@@ -372,6 +650,9 @@ export async function handleChatCore({
   comboName,
   comboStrategy = null,
   isCombo = false,
+  comboStepId = null,
+  comboExecutionKey = null,
+  disableEmergencyFallback = false,
 }) {
   let { provider, model, extendedContext } = modelInfo;
   const requestedModel =
@@ -426,10 +707,11 @@ export async function handleChatCore({
       };
 
       // T03/T09: on 429, persist exact reset time per scope to avoid global over-blocking.
+      // Item 3: Use dual-window cooldown to distinguish 5h vs 7d exhaustion.
       if (status === 429) {
-        const resetTimeMs = getCodexResetTime(quota);
-        if (resetTimeMs && resetTimeMs > Date.now()) {
-          const scopeUntil = new Date(resetTimeMs).toISOString();
+        const { cooldownMs, window: exhaustedWindow } = getCodexDualWindowCooldownMs(quota);
+        if (cooldownMs > 0) {
+          const scopeUntil = new Date(Date.now() + cooldownMs).toISOString();
           const scopeMapRaw =
             existingProviderData &&
             typeof existingProviderData === "object" &&
@@ -442,6 +724,17 @@ export async function handleChatCore({
             ...(scopeMapRaw as Record<string, unknown>),
             [scope]: scopeUntil,
           };
+          nextProviderData.codexExhaustedWindow = exhaustedWindow;
+          log?.debug?.(
+            "CODEX",
+            `Quota exhaustion on ${exhaustedWindow} window, cooldown until ${scopeUntil}`
+          );
+        }
+
+        // Invalidate the preflight cache for this connection so the next
+        // isModelAvailable check fetches fresh quota data.
+        if (connectionId) {
+          invalidateCodexQuotaCache(connectionId);
         }
       }
 
@@ -461,6 +754,15 @@ export async function handleChatCore({
   const cachedIdemp = checkIdempotency(idempotencyKey);
   if (cachedIdemp) {
     log?.debug?.("IDEMPOTENCY", `Hit for key=${idempotencyKey?.slice(0, 12)}...`);
+    const idempotentUsage =
+      cachedIdemp.response && typeof cachedIdemp.response === "object"
+        ? ((cachedIdemp.response as Record<string, unknown>).usage as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
+    const idempotentCost = idempotentUsage
+      ? await calculateCost(provider, model, idempotentUsage)
+      : 0;
     return {
       success: true,
       response: new Response(JSON.stringify(cachedIdemp.response), {
@@ -469,6 +771,14 @@ export async function handleChatCore({
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": getCorsOrigin(),
           "X-OmniRoute-Idempotent": "true",
+          ...buildOmniRouteResponseMetaHeaders({
+            provider,
+            model,
+            cacheHit: false,
+            latencyMs: Date.now() - startTime,
+            usage: idempotentUsage,
+            costUsd: idempotentCost,
+          }),
         },
       }),
     };
@@ -492,6 +802,12 @@ export async function handleChatCore({
     sourceFormat,
     endpointPath,
   });
+  const isDroidCLI =
+    userAgent?.toLowerCase().includes("droid") || userAgent?.toLowerCase().includes("codex-cli");
+  const clientResponseFormat =
+    sourceFormat === FORMATS.OPENAI_RESPONSES && !isResponsesEndpoint && !isDroidCLI
+      ? FORMATS.OPENAI
+      : sourceFormat;
 
   // Check for bypass patterns (warmup, skip) - return fake response
   const bypassResponse = handleBypassRequest(body, model, userAgent);
@@ -546,9 +862,32 @@ export async function handleChatCore({
 
   const alias = PROVIDER_ID_TO_ALIAS[provider] || provider;
   const modelTargetFormat = getModelTargetFormat(alias, resolvedModel);
-  const targetFormat = modelTargetFormat || getTargetFormat(provider);
+  const targetFormat =
+    modelTargetFormat || getTargetFormat(provider, credentials?.providerSpecificData);
+  const { body: bodyWithWebSearchFallback, fallback: webSearchFallbackPlan } =
+    prepareWebSearchFallbackBody(body as Record<string, unknown>, {
+      provider,
+      sourceFormat,
+      targetFormat,
+      nativeCodexPassthrough,
+    });
+  if (webSearchFallbackPlan.enabled) {
+    body = bodyWithWebSearchFallback as typeof body;
+    log?.info?.(
+      "TOOLS",
+      `Converted ${webSearchFallbackPlan.convertedToolCount} web_search tool(s) to OmniRoute fallback for ${provider}`
+    );
+  }
   const noLogEnabled = apiKeyInfo?.noLog === true;
   const detailedLoggingEnabled = !noLogEnabled && (await isDetailedLoggingEnabled());
+  const skillRequestId = generateRequestId();
+  const pipelineSessionId =
+    (clientRawRequest?.headers && typeof clientRawRequest.headers.get === "function"
+      ? clientRawRequest.headers.get("x-omniroute-session-id")
+      : getHeaderValueCaseInsensitive(
+          clientRawRequest?.headers ?? null,
+          "x-omniroute-session-id"
+        )) || skillRequestId;
   const persistAttemptLogs = ({
     status,
     tokens,
@@ -559,6 +898,7 @@ export async function handleChatCore({
     clientResponse,
     claudeCacheMeta,
     claudeCacheUsageMeta,
+    cacheSource,
   }: {
     status: number;
     tokens?: unknown;
@@ -569,6 +909,7 @@ export async function handleChatCore({
     clientResponse?: unknown;
     claudeCacheMeta?: Record<string, unknown>;
     claudeCacheUsageMeta?: Record<string, unknown>;
+    cacheSource?: "upstream" | "semantic";
   }) => {
     const callLogId = generateRequestId();
     const pipelinePayloads = detailedLoggingEnabled ? reqLogger?.getPipelinePayloads?.() : null;
@@ -618,6 +959,9 @@ export async function handleChatCore({
       sourceFormat,
       targetFormat,
       comboName,
+      comboStepId,
+      comboExecutionKey,
+      cacheSource: cacheSource === "semantic" ? "semantic" : "upstream",
       apiKeyId: apiKeyInfo?.id || null,
       apiKeyName: apiKeyInfo?.name || null,
       noLog: noLogEnabled,
@@ -628,18 +972,36 @@ export async function handleChatCore({
   // Primary path: merge client model id + alias target so config on either key applies; resolved
   // id wins on same header name. T5 family fallback uses only (nextModel, resolveModelAlias(next))
   // so A-model headers are not sent to B — see buildUpstreamHeadersForExecute.
+  const connectionCustomUserAgent =
+    credentials?.providerSpecificData &&
+    typeof credentials.providerSpecificData === "object" &&
+    typeof credentials.providerSpecificData.customUserAgent === "string"
+      ? credentials.providerSpecificData.customUserAgent.trim()
+      : "";
+
   const buildUpstreamHeadersForExecute = (modelToCall: string): Record<string, string> => {
-    if (modelToCall === effectiveModel) {
-      return {
-        ...getModelUpstreamExtraHeaders(provider || "", model || "", sourceFormat),
-        ...getModelUpstreamExtraHeaders(provider || "", resolvedModel || "", sourceFormat),
-      };
+    const upstreamHeaders =
+      modelToCall === effectiveModel
+        ? {
+            ...getModelUpstreamExtraHeaders(provider || "", model || "", sourceFormat),
+            ...getModelUpstreamExtraHeaders(provider || "", resolvedModel || "", sourceFormat),
+          }
+        : (() => {
+            const r = resolveModelAlias(modelToCall);
+            return {
+              ...getModelUpstreamExtraHeaders(provider || "", modelToCall || "", sourceFormat),
+              ...getModelUpstreamExtraHeaders(provider || "", r || "", sourceFormat),
+            };
+          })();
+
+    if (connectionCustomUserAgent) {
+      upstreamHeaders["User-Agent"] = connectionCustomUserAgent;
+      if ("user-agent" in upstreamHeaders) {
+        upstreamHeaders["user-agent"] = connectionCustomUserAgent;
+      }
     }
-    const r = resolveModelAlias(modelToCall);
-    return {
-      ...getModelUpstreamExtraHeaders(provider || "", modelToCall || "", sourceFormat),
-      ...getModelUpstreamExtraHeaders(provider || "", r || "", sourceFormat),
-    };
+
+    return upstreamHeaders;
   };
 
   // Default to false unless client explicitly sets stream: true (OpenAI spec compliant)
@@ -648,26 +1010,26 @@ export async function handleChatCore({
       ? clientRawRequest.headers.get("accept") || clientRawRequest.headers.get("Accept")
       : (clientRawRequest?.headers || {})["accept"] || (clientRawRequest?.headers || {})["Accept"];
 
-  const stream = resolveStreamFlag(body?.stream, acceptHeader);
+  const explicitStreamAlias = resolveExplicitStreamAlias(body);
 
-  // ── Phase 9.1: Semantic cache check (non-streaming, temp=0 only) ──
-  if (isCacheable(body, clientRawRequest?.headers)) {
-    const signature = generateSignature(model, body.messages, body.temperature, body.top_p);
-    const cached = getCachedResponse(signature);
-    if (cached) {
-      log?.debug?.("CACHE", `Semantic cache HIT for ${model}`);
-      return {
-        success: true,
-        response: new Response(JSON.stringify(cached), {
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": getCorsOrigin(),
-            "X-OmniRoute-Cache": "HIT",
-          },
-        }),
-      };
+  // Remove non-standard non-stream aliases before provider translation/execution.
+  // They are accepted for compatibility at the OmniRoute API boundary only.
+  if (body && typeof body === "object") {
+    const b = body as Record<string, unknown>;
+    if (explicitStreamAlias !== undefined) {
+      b.stream = explicitStreamAlias;
     }
+
+    delete b.non_stream;
+    delete b.disable_stream;
+    delete b.disable_streaming;
+    delete b.streaming;
   }
+
+  const stream = resolveStreamFlag(body?.stream, acceptHeader);
+  const settings = await getCachedSettings();
+  setGeminiThoughtSignatureMode(settings.antigravitySignatureCacheMode);
+  const semanticCacheEnabled = settings.semanticCacheEnabled !== false;
 
   // Create request logger for this session: sourceFormat_targetFormat_model
   const reqLogger = await createRequestLogger(sourceFormat, targetFormat, model);
@@ -683,7 +1045,78 @@ export async function handleChatCore({
 
   log?.debug?.("FORMAT", `${sourceFormat} → ${targetFormat} | stream=${stream}`);
 
+  // ── Phase 9.1: Semantic cache check (temp=0, any streaming mode) ──
+  // Streaming responses are cached after assembly; cache hits return JSON regardless of stream flag.
+  if (semanticCacheEnabled && isCacheableForRead(body, clientRawRequest?.headers)) {
+    const signature = generateSignature(
+      model,
+      body.messages ?? body.input,
+      body.temperature,
+      body.top_p
+    );
+    const cached = getCachedResponse(signature);
+    if (cached) {
+      log?.debug?.("CACHE", `Semantic cache HIT for ${model} (stream=${stream})`);
+      reqLogger.logConvertedResponse(cached as Record<string, unknown>);
+      const cachedUsage =
+        extractUsageFromResponse(cached as Record<string, unknown>, provider) ||
+        ((cached as Record<string, unknown>)?.usage as Record<string, unknown> | undefined);
+      const cachedCost = cachedUsage ? await calculateCost(provider, model, cachedUsage) : 0;
+      persistAttemptLogs({
+        status: 200,
+        tokens: (cached as Record<string, unknown>)?.usage,
+        responseBody: cached,
+        providerRequest: null,
+        providerResponse: null,
+        clientResponse: cached,
+        cacheSource: "semantic",
+      });
+      return {
+        success: true,
+        response: new Response(JSON.stringify(cached), {
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": getCorsOrigin(),
+            [OMNIROUTE_RESPONSE_HEADERS.cache]: "HIT",
+            ...buildOmniRouteResponseMetaHeaders({
+              provider,
+              model,
+              cacheHit: true,
+              latencyMs: Date.now() - startTime,
+              usage: cachedUsage,
+              costUsd: cachedCost,
+            }),
+          },
+        }),
+      };
+    }
+  }
+
   // ── Common input sanitization (runs for ALL paths including passthrough) ──
+  // #994: Normalize between max_output_tokens and max_tokens for universal compatibility.
+  // For Responses API targets, max_output_tokens is the canonical field. For others,
+  // max_tokens is preferred. We handle normalization here to support passthrough
+  // paths where the translator is skipped.
+  const prefersResponsesTokenField =
+    sourceFormat === FORMATS.OPENAI_RESPONSES || targetFormat === FORMATS.OPENAI_RESPONSES;
+
+  if (prefersResponsesTokenField) {
+    if (body.max_output_tokens === undefined) {
+      if (body.max_completion_tokens !== undefined) {
+        body.max_output_tokens = body.max_completion_tokens;
+        delete body.max_completion_tokens;
+      } else if (body.max_tokens !== undefined) {
+        body.max_output_tokens = body.max_tokens;
+        delete body.max_tokens;
+      }
+    }
+  } else if (body.max_output_tokens !== undefined) {
+    if (body.max_tokens === undefined) {
+      body.max_tokens = body.max_output_tokens;
+    }
+    delete body.max_output_tokens;
+  }
+
   // #291: Strip empty name fields from messages/input items
   // Upstream providers (OpenAI, Codex) reject name:"" with 400 errors.
   if (Array.isArray(body.messages)) {
@@ -709,15 +1142,35 @@ export async function handleChatCore({
   // upstream providers to reject with 400 "Invalid 'tools[0].name': empty string."
   if (Array.isArray(body.tools)) {
     body.tools = body.tools.filter((tool: Record<string, unknown>) => {
+      // Built-in Responses API tool types (web_search, file_search, computer, etc.)
+      // are identified solely by their `type` field and carry no name — preserve them.
+      const toolType = typeof tool.type === "string" ? tool.type : "";
+      if (toolType && toolType !== "function" && !tool.function && tool.name === undefined) {
+        return true;
+      }
       const fn = tool.function as Record<string, unknown> | undefined;
       const name = fn?.name ?? tool.name;
       return name && String(name).trim().length > 0;
     });
   }
 
-  if (apiKeyInfo?.id && shouldInjectMemory(body as Parameters<typeof shouldInjectMemory>[0])) {
+  const memoryOwnerId = resolveMemoryOwnerId(apiKeyInfo as Record<string, unknown> | null);
+  const memorySettings = memoryOwnerId
+    ? await getMemorySettings().catch(() => DEFAULT_MEMORY_SETTINGS)
+    : null;
+
+  if (
+    memoryOwnerId &&
+    memorySettings &&
+    shouldInjectMemory(body as Parameters<typeof shouldInjectMemory>[0], {
+      enabled: memorySettings.enabled && memorySettings.maxTokens > 0,
+    })
+  ) {
     try {
-      const memories = await retrieveMemories(apiKeyInfo.id);
+      const memories = await retrieveMemories(
+        memoryOwnerId,
+        toMemoryRetrievalConfig(memorySettings)
+      );
       if (memories.length > 0) {
         const injected = injectMemory(
           body as Parameters<typeof injectMemory>[0],
@@ -725,7 +1178,7 @@ export async function handleChatCore({
           provider
         );
         body = injected as typeof body;
-        log?.debug?.("MEMORY", `Injected ${memories.length} memories for key=${apiKeyInfo.id}`);
+        log?.debug?.("MEMORY", `Injected ${memories.length} memories for key=${memoryOwnerId}`);
       }
     } catch (memErr) {
       log?.debug?.(
@@ -735,7 +1188,130 @@ export async function handleChatCore({
     }
   }
 
+  if (memoryOwnerId && memorySettings?.skillsEnabled) {
+    const existingTools = Array.isArray(body.tools) ? body.tools : [];
+    const mergedTools = injectSkills({
+      provider: getSkillsProviderForFormat(sourceFormat),
+      existingTools,
+      apiKeyId: memoryOwnerId,
+      model: typeof effectiveModel === "string" ? effectiveModel : undefined,
+      sourceFormat,
+      targetFormat,
+      backgroundReason,
+      messages: Array.isArray(body.messages)
+        ? body.messages
+        : Array.isArray(body.input)
+          ? body.input
+          : undefined,
+    });
+
+    if (mergedTools.length > existingTools.length) {
+      body = {
+        ...body,
+        tools: mergedTools,
+      };
+      log?.debug?.("SKILLS", `Injected ${mergedTools.length - existingTools.length} skills`);
+    }
+  }
+
   // Translate request (pass reqLogger for intermediate logging)
+  // ── Proactive Context Compression (Phase 4) ──
+  // Check if context exceeds 70% of limit and compress proactively before sending to provider.
+  // This prevents "prompt too long" errors for large-but-not-full contexts.
+  const allMessages =
+    body?.messages || body?.input || body?.contents || body?.request?.contents || [];
+  if (body && Array.isArray(allMessages) && allMessages.length > 0) {
+    const estimatedTokens = estimateTokens(JSON.stringify(allMessages));
+    let contextLimit = getTokenLimit(provider, effectiveModel);
+
+    if (isCombo && comboName) {
+      log?.info?.("CONTEXT", `Attempting to resolve combo limits for comboName=${comboName}`);
+      try {
+        const { getComboByName } = await import("../../src/lib/localDb");
+        const { parseModel } = await import("../services/model.ts");
+        const { resolveComboTargets } = await import("../services/combo.ts");
+        const comboToSearch = comboName.startsWith("combo/") ? comboName.substring(6) : comboName;
+        const comboConfig = await getComboByName(comboToSearch);
+        if (comboConfig) {
+          const targets = await resolveComboTargets(comboConfig, null);
+          const limits = targets.map((t: { modelStr?: string }) => {
+            const parsed = parseModel(t.modelStr);
+            return getTokenLimit(parsed.provider, parsed.model);
+          });
+          if (limits.length > 0) {
+            contextLimit = Math.min(...limits);
+            log?.info?.("CONTEXT", `Combo min limit: ${contextLimit}`);
+          }
+        }
+      } catch (err) {
+        log?.warn?.("CONTEXT", "Failed to resolve combo limits for compression: " + err);
+      }
+    }
+
+    const COMPRESSION_THRESHOLD = 0.7;
+    let reservedTokens = 0;
+    if (Array.isArray(body.tools)) {
+      reservedTokens = estimateTokens(JSON.stringify(body.tools));
+    }
+    const threshold = Math.max(
+      1,
+      Math.floor((Math.max(1, contextLimit) - reservedTokens) * COMPRESSION_THRESHOLD)
+    );
+
+    log?.debug?.(
+      "CONTEXT",
+      `Checking compression: ${estimatedTokens} tokens vs ${threshold} threshold (${contextLimit} limit, ${reservedTokens} reserved)`
+    );
+
+    if (estimatedTokens > threshold) {
+      log?.info?.(
+        "CONTEXT",
+        `Proactive compression triggered: ${estimatedTokens} tokens > ${threshold} threshold (${contextLimit} limit)`
+      );
+
+      const compressionResult = compressContext(body, {
+        provider,
+        model: effectiveModel,
+        maxTokens: threshold,
+        reserveTokens: 0,
+      });
+
+      if (compressionResult.compressed) {
+        body = compressionResult.body;
+        const stats = compressionResult.stats;
+        const layersInfo =
+          stats && "layers" in stats && Array.isArray(stats.layers)
+            ? ` (layers: ${stats.layers.map((l: { name: string }) => l.name).join(", ")})`
+            : "";
+
+        log?.info?.(
+          "CONTEXT",
+          `Context compressed: ${stats.original} → ${stats.final} tokens${layersInfo}`
+        );
+
+        logAuditEvent({
+          action: "context.proactive_compression",
+          actor: apiKeyInfo?.name || "system",
+          target: connectionId || provider || "chat",
+          details: {
+            provider,
+            model: effectiveModel,
+            original_tokens: stats.original,
+            final_tokens: stats.final,
+            layers: "layers" in stats ? stats.layers : undefined,
+          },
+        });
+      } else {
+        log?.debug?.("CONTEXT", `Compression not applied: context already fits within target`);
+      }
+    }
+  } else {
+    log?.debug?.(
+      "CONTEXT",
+      `Skipping compression check: body=${!!body}, hasMessages=${Array.isArray(allMessages)}`
+    );
+  }
+
   let translatedBody = body;
   const isClaudePassthrough = sourceFormat === FORMATS.CLAUDE && targetFormat === FORMATS.CLAUDE;
   const isClaudeCodeCompatible = isClaudeCodeCompatibleProvider(provider);
@@ -760,6 +1336,84 @@ export async function handleChatCore({
       `Preserving client cache_control (client=${userAgent?.substring(0, 20)}, combo=${isCombo}, strategy=${comboStrategy}, provider=${provider})`
     );
   }
+
+  type ClaudeContentBlock = Record<string, unknown>;
+  type ClaudeMessage = {
+    role?: unknown;
+    content?: unknown;
+  };
+
+  const normalizeClaudeUpstreamMessages = (payload: Record<string, unknown>) => {
+    if (!Array.isArray(payload.messages)) return;
+    const messages = payload.messages as ClaudeMessage[];
+
+    // Anthropic rejects empty text blocks in native Messages payloads.
+    for (const msg of messages) {
+      if (Array.isArray(msg.content)) {
+        msg.content = msg.content.filter(
+          (block: ClaudeContentBlock) =>
+            block.type !== "text" || (typeof block.text === "string" && block.text.length > 0)
+        );
+      }
+    }
+
+    // Normalize unsupported content types without reintroducing the Claude -> OpenAI round-trip.
+    for (const msg of messages) {
+      if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+      msg.content = (msg.content as ClaudeContentBlock[]).flatMap((block: ClaudeContentBlock) => {
+        if (
+          block.type === "text" ||
+          block.type === "image_url" ||
+          block.type === "image" ||
+          block.type === "file_url" ||
+          block.type === "file" ||
+          block.type === "document"
+        ) {
+          const fileData = (block.file_url ?? block.file ?? block.document) as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            (block.type === "file" || block.type === "document") &&
+            !fileData?.url &&
+            !fileData?.data
+          ) {
+            const fileContent =
+              (block.file as ClaudeContentBlock)?.content ??
+              (block.file as ClaudeContentBlock)?.text ??
+              block.content ??
+              block.text;
+            const fileName =
+              (block.file as Record<string, unknown>)?.name ?? block.name ?? "attachment";
+            if (typeof fileContent === "string" && fileContent.length > 0) {
+              return [{ type: "text", text: `[${fileName}]\n${fileContent}` }];
+            }
+          }
+          return [block];
+        }
+
+        if (block.type === "tool_result") {
+          const toolId = block.tool_use_id ?? block.id ?? "unknown";
+          const resultContent = block.content ?? block.text ?? block.output ?? "";
+          const resultText =
+            typeof resultContent === "string"
+              ? resultContent
+              : Array.isArray(resultContent)
+                ? resultContent
+                    .filter((c: Record<string, unknown>) => c.type === "text")
+                    .map((c: Record<string, unknown>) => c.text)
+                    .join("\n")
+                : JSON.stringify(resultContent);
+          if (resultText.length > 0) {
+            return [{ type: "text", text: `[Tool Result: ${toolId}]\n${resultText}` }];
+          }
+          return [];
+        }
+
+        log?.debug?.("CONTENT", `Dropped unsupported content part type="${block.type}"`);
+        return [];
+      });
+    }
+  };
 
   try {
     if (nativeCodexPassthrough) {
@@ -807,52 +1461,17 @@ export async function handleChatCore({
         preserveCacheControl,
       });
       log?.debug?.("FORMAT", "claude-code-compatible bridge enabled");
-    } else if (isClaudePassthrough && preserveCacheControl) {
-      // Pure passthrough: when preserveCacheControl is true, forward the body
-      // as-is without prior normalization. The OpenAI round-trip would strip
-      // cache_control markers; even prepareClaudeRequest can alter structure.
-      // Claude Code sends well-formed Messages API payloads — trust it.
+    } else if (isClaudePassthrough) {
+      // Pure passthrough: forward the body as-is without OpenAI round-trip.
+      // The Claude→OpenAI→Claude double translation was lossy and corrupted
+      // payloads at high context (150+ msgs, 100+ tools). Fix: #1359.
+      // Claude Code sends well-formed Messages API payloads — trust them
+      // regardless of combo strategy or cache_control settings.
       translatedBody = { ...body };
       translatedBody._disableToolPrefix = true;
+      normalizeClaudeUpstreamMessages(translatedBody);
 
-      log?.debug?.("FORMAT", "claude passthrough with cache_control preservation");
-    } else if (isClaudePassthrough) {
-      // Claude OAuth expects the same Claude Code prompt + structural normalization
-      // as the OpenAI-compatible chat path. Round-trip through OpenAI to reuse the
-      // working Claude translator instead of forwarding raw Messages payloads.
-      const normalizeToolCallId = getModelNormalizeToolCallId(
-        provider || "",
-        model || "",
-        sourceFormat
-      );
-      const preserveDeveloperRole = getModelPreserveOpenAIDeveloperRole(
-        provider || "",
-        model || "",
-        sourceFormat
-      );
-      translatedBody = translateRequest(
-        FORMATS.CLAUDE,
-        FORMATS.OPENAI,
-        model,
-        { ...body },
-        stream,
-        credentials,
-        provider,
-        reqLogger,
-        { normalizeToolCallId, preserveDeveloperRole, preserveCacheControl }
-      );
-      translatedBody = translateRequest(
-        FORMATS.OPENAI,
-        FORMATS.CLAUDE,
-        model,
-        { ...translatedBody, _disableToolPrefix: true },
-        stream,
-        credentials,
-        provider,
-        reqLogger,
-        { normalizeToolCallId, preserveDeveloperRole, preserveCacheControl }
-      );
-      log?.debug?.("FORMAT", "claude->openai->claude normalized passthrough");
+      log?.debug?.("FORMAT", `claude passthrough (preserveCache=${preserveCacheControl})`);
     } else {
       translatedBody = { ...body };
 
@@ -863,75 +1482,40 @@ export async function handleChatCore({
       // "proxy_Bash", which Claude rejects ("No such tool available: proxy_Bash").
       if (targetFormat === FORMATS.CLAUDE) {
         translatedBody._disableToolPrefix = true;
+        normalizeClaudeUpstreamMessages(translatedBody);
       }
 
-      // Strip empty text content blocks from messages.
-      // Anthropic API rejects {"type":"text","text":""} with 400 "text content blocks must be non-empty".
-      // Some clients (LiteLLM passthrough, @ai-sdk/anthropic) may forward these empty blocks as-is.
-      if (Array.isArray(translatedBody.messages)) {
-        for (const msg of translatedBody.messages) {
-          if (Array.isArray(msg.content)) {
-            msg.content = msg.content.filter(
-              (block: Record<string, unknown>) =>
-                block.type !== "text" || (typeof block.text === "string" && block.text.length > 0)
-            );
-          }
-        }
-      }
-
-      // ── #409: Normalize unsupported content part types ──
-      // Cursor and other clients send {type:"file"} when attaching .md or other files.
-      // Providers (Copilot, OpenAI) only accept "text" and "image_url" in content arrays.
-      // Convert: file → text (extract content), drop unrecognized types with a warning.
-      if (Array.isArray(translatedBody.messages)) {
-        for (const msg of translatedBody.messages) {
-          if (msg.role === "user" && Array.isArray(msg.content)) {
-            msg.content = (msg.content as Record<string, unknown>[]).flatMap(
-              (block: Record<string, unknown>) => {
-                if (block.type === "text" || block.type === "image_url" || block.type === "image") {
-                  return [block];
-                }
-                // file / document → extract text content
-                if (block.type === "file" || block.type === "document") {
-                  const fileContent =
-                    (block.file as Record<string, unknown>)?.content ??
-                    (block.file as Record<string, unknown>)?.text ??
-                    block.content ??
-                    block.text;
-                  const fileName =
-                    (block.file as Record<string, unknown>)?.name ?? block.name ?? "attachment";
-                  if (typeof fileContent === "string" && fileContent.length > 0) {
-                    return [{ type: "text", text: `[${fileName}]\n${fileContent}` }];
-                  }
-                  return [];
-                }
-                // (#527) tool_result → convert to text instead of dropping.
-                // When Claude Code + superpowers routes through Codex, it sends tool_result
-                // blocks in user messages. Silently dropping them causes Codex to loop
-                // because it never receives the tool response and keeps re-requesting it.
-                if (block.type === "tool_result") {
-                  const toolId = block.tool_use_id ?? block.id ?? "unknown";
-                  const resultContent = block.content ?? block.text ?? block.output ?? "";
-                  const resultText =
-                    typeof resultContent === "string"
-                      ? resultContent
-                      : Array.isArray(resultContent)
-                        ? resultContent
-                            .filter((c: Record<string, unknown>) => c.type === "text")
-                            .map((c: Record<string, unknown>) => c.text)
-                            .join("\n")
-                        : JSON.stringify(resultContent);
-                  if (resultText.length > 0) {
-                    return [{ type: "text", text: `[Tool Result: ${toolId}]\n${resultText}` }];
-                  }
-                  return [];
-                }
-                // Unknown types: drop silently
-                log?.debug?.("CONTENT", `Dropped unsupported content part type="${block.type}"`);
-                return [];
-              }
-            );
-          }
+      // OpenAI-compatible providers only support function tools.
+      // Non-function tool types (computer, mcp, web_search, custom, etc.) are handled:
+      //   - tools with a name → converted to function format in-place before translation
+      //   - tools without a name AND without .function → dropped (unconvertible)
+      // This must happen before translateRequest, which validates and throws on unknown types.
+      if (provider?.startsWith("openai-compatible-") && Array.isArray(translatedBody.tools)) {
+        const before = (translatedBody.tools as unknown[]).length;
+        translatedBody.tools = (translatedBody.tools as Record<string, unknown>[])
+          .filter((t) => !t.type || t.type === "function" || !!t.function || !!t.name)
+          .map((t) => {
+            if (!t.type || t.type === "function" || t.function) return t;
+            // Named non-function tool: normalise to function format so the translator
+            // does not throw on the unknown type.
+            return {
+              type: "function",
+              function: {
+                name: t.name,
+                ...(t.description !== undefined ? { description: t.description } : {}),
+                ...(t.parameters !== undefined || t.input_schema !== undefined
+                  ? { parameters: t.parameters ?? t.input_schema ?? {} }
+                  : {}),
+                ...(t.strict !== undefined ? { strict: t.strict } : {}),
+              },
+            };
+          });
+        const dropped = before - (translatedBody.tools as unknown[]).length;
+        if (dropped > 0) {
+          log?.debug?.(
+            "TOOLS",
+            `Dropped ${dropped} unconvertible tool(s) for openai-compatible provider`
+          );
         }
       }
 
@@ -1008,7 +1592,14 @@ export async function handleChatCore({
   delete translatedBody._disableToolPrefix;
 
   // Update model in body — use resolved alias so the provider gets the correct model ID (#472)
-  translatedBody.model = effectiveModel;
+  // Strip provider/alias prefix if it exactly matches the routing prefix so upstream receives the raw model name (#1261)
+  let finalModelToUpstream = effectiveModel;
+  if (finalModelToUpstream.startsWith(`${provider}/`)) {
+    finalModelToUpstream = finalModelToUpstream.slice(provider.length + 1);
+  } else if (alias && finalModelToUpstream.startsWith(`${alias}/`)) {
+    finalModelToUpstream = finalModelToUpstream.slice(alias.length + 1);
+  }
+  translatedBody.model = finalModelToUpstream;
 
   // Strip unsupported parameters for reasoning models (o1, o3, etc.)
   const unsupported = getUnsupportedParams(provider, model);
@@ -1070,22 +1661,9 @@ export async function handleChatCore({
       log?: unknown;
       upstreamExtraHeaders?: Record<string, string> | null;
     }) => {
+      let result;
       try {
-        const result = await nativeExec.execute(input);
-        if (isRetryableStatus(result.response.status)) {
-          log?.info?.(
-            "UPSTREAM_PROXY",
-            `${prov} native failed (${result.response.status}), retrying via CLIProxyAPI`
-          );
-          try {
-            return await proxyExec.execute(input);
-          } catch (proxyErr) {
-            const proxyMsg = proxyErr instanceof Error ? proxyErr.message : String(proxyErr);
-            log?.error?.("UPSTREAM_PROXY", `${prov} CLIProxyAPI fallback also failed: ${proxyMsg}`);
-            throw proxyErr;
-          }
-        }
-        return result;
+        result = await nativeExec.execute(input);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         log?.info?.("UPSTREAM_PROXY", `${prov} native error (${errMsg}), retrying via CLIProxyAPI`);
@@ -1096,6 +1674,21 @@ export async function handleChatCore({
           log?.error?.("UPSTREAM_PROXY", `${prov} CLIProxyAPI fallback also failed: ${proxyMsg}`);
           throw proxyErr;
         }
+      }
+
+      if (!isRetryableStatus(result.response.status)) {
+        return result;
+      }
+      log?.info?.(
+        "UPSTREAM_PROXY",
+        `${prov} native failed (${result.response.status}), retrying via CLIProxyAPI`
+      );
+      try {
+        return await proxyExec.execute(input);
+      } catch (proxyErr) {
+        const proxyMsg = proxyErr instanceof Error ? proxyErr.message : String(proxyErr);
+        log?.error?.("UPSTREAM_PROXY", `${prov} CLIProxyAPI fallback also failed: ${proxyMsg}`);
+        throw proxyErr;
       }
     };
     return wrapper;
@@ -1132,6 +1725,53 @@ export async function handleChatCore({
         translatedBody.model === modelToCall
           ? translatedBody
           : { ...translatedBody, model: modelToCall };
+      const payloadRuleModel =
+        typeof bodyToSend.model === "string" && bodyToSend.model.length > 0
+          ? bodyToSend.model
+          : modelToCall;
+      const payloadRuleProtocols = resolvePayloadRuleProtocols({
+        provider,
+        targetFormat,
+      });
+      const payloadRuleResult = await applyConfiguredPayloadRules(
+        bodyToSend,
+        payloadRuleModel,
+        payloadRuleProtocols
+      );
+      bodyToSend = payloadRuleResult.payload;
+
+      if (payloadRuleResult.applied.length > 0) {
+        const appliedSummary = payloadRuleResult.applied
+          .map((rule) => {
+            if (rule.type === "filter") return `${rule.type}:${rule.path}`;
+            const serializedValue = JSON.stringify(rule.value);
+            const safeValue =
+              typeof serializedValue === "string" && serializedValue.length > 80
+                ? `${serializedValue.slice(0, 77)}...`
+                : serializedValue;
+            return `${rule.type}:${rule.path}=${safeValue}`;
+          })
+          .join(", ");
+        log?.debug?.(
+          "PAYLOAD_RULES",
+          `Applied ${payloadRuleResult.applied.length} rule(s) for ${payloadRuleModel} (${payloadRuleProtocols.join(", ")}): ${appliedSummary}`
+        );
+      }
+
+      // Qwen OAuth rejects requests without a non-empty `user` field.
+      // Some minimal OpenAI-compatible clients omit it, so we backfill a
+      // stable default only for OAuth mode (API key mode is unaffected).
+      const hasValidQwenUser =
+        typeof bodyToSend.user === "string" && bodyToSend.user.trim().length > 0;
+      const isQwenOAuthRequest =
+        provider === "qwen" &&
+        !credentials?.apiKey &&
+        typeof credentials?.accessToken === "string" &&
+        credentials.accessToken.trim().length > 0;
+      if (isQwenOAuthRequest && !hasValidQwenUser) {
+        bodyToSend = { ...bodyToSend, user: "omniroute-qwen-oauth" };
+        log?.debug?.("QWEN", "Injected fallback user for OAuth request");
+      }
 
       // Inject prompt_cache_key only for providers that support it
       if (
@@ -1162,6 +1802,8 @@ export async function handleChatCore({
             log,
             extendedContext,
             upstreamExtraHeaders: buildUpstreamHeadersForExecute(modelToCall),
+            clientHeaders: buildExecutorClientHeaders(clientRawRequest?.headers, userAgent),
+            onCredentialsRefreshed,
           });
 
           // Qwen 429 strict quota backoff (wait 1.5s, 3s and retry)
@@ -1193,6 +1835,12 @@ export async function handleChatCore({
       return {
         ...rawResult,
         response: new Response(payload, { status, statusText, headers }),
+        _dedupSnapshot: {
+          status,
+          statusText,
+          headers,
+          payload,
+        },
       };
     };
 
@@ -1201,7 +1849,7 @@ export async function handleChatCore({
       if (dedupResult.wasDeduplicated) {
         log?.debug?.("DEDUP", `Joined in-flight request hash=${dedupHash}`);
       }
-      return dedupResult.result;
+      return materializeDeduplicatedExecutionResult(dedupResult.result);
     }
 
     return execute();
@@ -1257,11 +1905,16 @@ export async function handleChatCore({
     );
   } catch (error) {
     trackPendingRequest(model, provider, connectionId, false);
-    const failureStatus = error.name === "AbortError" ? 499 : HTTP_STATUS.BAD_GATEWAY;
+    const failureStatus =
+      error.name === "AbortError"
+        ? 499
+        : error.name === "TimeoutError"
+          ? HTTP_STATUS.GATEWAY_TIMEOUT
+          : HTTP_STATUS.BAD_GATEWAY;
     const failureMessage =
       error.name === "AbortError"
         ? "Request aborted"
-        : formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
+        : formatProviderError(error, provider, model, failureStatus);
     appendRequestLog({
       model,
       provider,
@@ -1274,28 +1927,55 @@ export async function handleChatCore({
       providerRequest: finalBody || translatedBody,
       clientResponse: buildErrorBody(failureStatus, failureMessage),
       claudeCacheMeta: claudePromptCacheLogMeta,
+      cacheSource: "upstream",
     });
     if (error.name === "AbortError") {
       streamController.handleError(error);
       return createErrorResult(499, "Request aborted");
     }
     persistFailureUsage(
-      HTTP_STATUS.BAD_GATEWAY,
+      failureStatus,
       error instanceof Error && error.name ? error.name : "upstream_error"
     );
     console.log(`${COLORS.red}[ERROR] ${failureMessage}${COLORS.reset}`);
-    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, failureMessage);
+    return createErrorResult(failureStatus, failureMessage);
+  }
+  // We need to peek at the error text if it's 400 for Qwen
+  let upstreamErrorParsed = false;
+  let parsedStatusCode = providerResponse.status;
+  let parsedMessage = "";
+  let parsedRetryAfterMs: number | null = null;
+  let upstreamErrorBody: unknown = null;
+
+  if (provider === "qwen" && providerResponse.status === HTTP_STATUS.BAD_REQUEST) {
+    const errorDetails = await parseUpstreamError(providerResponse, provider);
+    parsedStatusCode = errorDetails.statusCode;
+    parsedMessage = errorDetails.message;
+    parsedRetryAfterMs = errorDetails.retryAfterMs;
+    upstreamErrorBody = errorDetails.responseBody;
+    upstreamErrorParsed = true;
   }
 
-  // Handle 401/403 - try token refresh using executor
+  const isQwenExpiredError =
+    provider === "qwen" &&
+    parsedStatusCode === HTTP_STATUS.BAD_REQUEST &&
+    parsedMessage &&
+    parsedMessage.toLowerCase().includes("session has expired");
+
+  const streamOptionsOnlyFailed = false; // TODO: properly track stream options failure? (placeholder from existing logic)
+
+  // Handle 401/403 (and Qwen explicit expiration) - try token refresh using executor
   if (
-    providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
-    providerResponse.status === HTTP_STATUS.FORBIDDEN
+    (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
+      providerResponse.status === HTTP_STATUS.FORBIDDEN ||
+      isQwenExpiredError) &&
+    !streamOptionsOnlyFailed // Keep constraint if stream options failed originally
   ) {
     const newCredentials = (await refreshWithRetry(
       () => executor.refreshCredentials(credentials, log),
       3,
-      log
+      log,
+      provider // Explicitly pass the provider to avoid universally tripping the "unknown" circuit breaker
     )) as null | {
       accessToken?: string;
       copilotToken?: string;
@@ -1325,6 +2005,8 @@ export async function handleChatCore({
           log,
           extendedContext,
           upstreamExtraHeaders: buildUpstreamHeadersForExecute(retryModelId),
+          clientHeaders: buildExecutorClientHeaders(clientRawRequest?.headers, userAgent),
+          onCredentialsRefreshed,
         });
 
         if (retryResult.response.ok) {
@@ -1333,6 +2015,10 @@ export async function handleChatCore({
           providerHeaders = retryResult.headers;
           finalBody = retryResult.transformedBody;
           reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
+          upstreamErrorParsed = false; // Reset since new response is OK
+        } else {
+          providerResponse = retryResult.response;
+          upstreamErrorParsed = false; // Let it be parsed downstream
         }
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
@@ -1417,12 +2103,22 @@ export async function handleChatCore({
   // Check provider response - return error info for fallback handling
   if (!providerResponse.ok) {
     trackPendingRequest(model, provider, connectionId, false);
-    const {
-      statusCode,
-      message,
-      retryAfterMs,
-      responseBody: upstreamErrorBody,
-    } = await parseUpstreamError(providerResponse, provider);
+
+    let statusCode = providerResponse.status;
+    let message = "";
+    let retryAfterMs: number | null = null;
+
+    if (upstreamErrorParsed) {
+      statusCode = parsedStatusCode;
+      message = parsedMessage;
+      retryAfterMs = parsedRetryAfterMs;
+    } else {
+      const details = await parseUpstreamError(providerResponse, provider);
+      statusCode = details.statusCode;
+      message = details.message;
+      retryAfterMs = details.retryAfterMs;
+      upstreamErrorBody = details.responseBody;
+    }
 
     // T06/T10/T36: classify provider errors and persist terminal account states.
     const errorType = classifyProviderError(statusCode, message);
@@ -1459,24 +2155,32 @@ export async function handleChatCore({
           // For providers with per-model quotas (passthrough providers, Gemini),
           // each model has independent quota. A 429 on one model must NOT lock out
           // the entire connection — other models may still have quota available.
+          const rateLimitCooldownMs = retryAfterMs || COOLDOWN_MS.rateLimit;
           if (
             lockModelIfPerModelQuota(
               provider,
               connectionId,
               model,
               "rate_limited",
-              retryAfterMs || COOLDOWN_MS.rateLimit
+              rateLimitCooldownMs
             )
           ) {
             console.warn(
-              `[provider] Node ${connectionId} model-only rate limited (${statusCode}) for ${model} - ${Math.ceil((retryAfterMs || COOLDOWN_MS.rateLimit) / 1000)}s (connection stays active)`
+              `[provider] Node ${connectionId} model-only rate limited (${statusCode}) for ${model} - ${Math.ceil(rateLimitCooldownMs / 1000)}s (connection stays active)`
             );
           } else {
+<<<<<<< HEAD
             const cooldownMs = retryAfterMs || COOLDOWN_MS.rateLimit;
             const rateLimitedUntil = new Date(Date.now() + cooldownMs).toISOString();
             await updateProviderConnection(connectionId, {
               rateLimitedUntil: rateLimitedUntil,
               testStatus: usesResettableWebQuota ? "unavailable" : "credits_exhausted",
+=======
+            const rateLimitedUntil = new Date(Date.now() + rateLimitCooldownMs).toISOString();
+            await updateProviderConnection(connectionId, {
+              rateLimitedUntil: rateLimitedUntil,
+              testStatus: "unavailable",
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
               lastErrorType: errorType,
               lastError: message,
               errorCode: statusCode,
@@ -1539,6 +2243,16 @@ export async function handleChatCore({
             lastError: message,
             errorCode: statusCode,
           });
+        } else if (errorType === PROVIDER_ERROR_TYPES.OAUTH_INVALID_TOKEN) {
+          // OAuth 401 with invalid credentials - token refresh can recover
+          await updateProviderConnection(connectionId, {
+            lastErrorType: errorType,
+            lastError: message,
+            errorCode: statusCode,
+          });
+          console.warn(
+            `[provider] Node ${connectionId} OAuth token invalid (${statusCode}) — token refresh available`
+          );
         } else if (errorType === PROVIDER_ERROR_TYPES.PROJECT_ROUTE_ERROR) {
           // Cloud Code 403 with stale project: not a ban, keep account active.
           await updateProviderConnection(connectionId, {
@@ -1579,6 +2293,9 @@ export async function handleChatCore({
 
     // Update rate limiter from error response headers
     updateFromHeaders(provider, connectionId, providerResponse.headers, statusCode, model);
+    if (connectionId && upstreamErrorBody !== null && upstreamErrorBody !== undefined) {
+      updateFromResponseBody(provider, connectionId, upstreamErrorBody, statusCode, model);
+    }
 
     // ── T5: Intra-family model fallback ──────────────────────────────────────
     // Before returning a model-unavailable error upstream, try sibling models
@@ -1612,6 +2329,7 @@ export async function handleChatCore({
               providerRequest: finalBody || translatedBody,
               providerResponse: upstreamErrorBody,
               clientResponse: buildErrorBody(statusCode, errMsg),
+              cacheSource: "upstream",
             });
             persistFailureUsage(statusCode, "model_unavailable");
             return createErrorResult(statusCode, errMsg, retryAfterMs);
@@ -1623,6 +2341,7 @@ export async function handleChatCore({
             providerRequest: finalBody || translatedBody,
             providerResponse: upstreamErrorBody,
             clientResponse: buildErrorBody(statusCode, errMsg),
+            cacheSource: "upstream",
           });
           persistFailureUsage(statusCode, "model_unavailable");
           return createErrorResult(statusCode, errMsg, retryAfterMs);
@@ -1634,8 +2353,69 @@ export async function handleChatCore({
           providerRequest: finalBody || translatedBody,
           providerResponse: upstreamErrorBody,
           clientResponse: buildErrorBody(statusCode, errMsg),
+          cacheSource: "upstream",
         });
         persistFailureUsage(statusCode, "model_unavailable");
+        return createErrorResult(statusCode, errMsg, retryAfterMs);
+      }
+    } else if (isContextOverflowError(statusCode, message)) {
+      const familyCandidates = getModelFamily(currentModel).filter(
+        (m) => m !== currentModel && !triedModels.has(m)
+      );
+      const nextModel =
+        findLargerContextModel(currentModel, familyCandidates) ??
+        getNextFamilyFallback(currentModel, triedModels);
+      if (nextModel) {
+        triedModels.add(nextModel);
+        currentModel = nextModel;
+        translatedBody.model = nextModel;
+        log?.info?.("CONTEXT_OVERFLOW_FALLBACK", `${model} context overflow → trying ${nextModel}`);
+        try {
+          const fallbackResult = await executeProviderRequest(nextModel, false);
+          if (fallbackResult.response.ok) {
+            providerResponse = fallbackResult.response;
+            providerUrl = fallbackResult.url;
+            providerHeaders = fallbackResult.headers;
+            finalBody = fallbackResult.transformedBody;
+            reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
+            log?.info?.(
+              "CONTEXT_OVERFLOW_FALLBACK",
+              `Serving ${nextModel} as fallback for ${model}`
+            );
+          } else {
+            persistAttemptLogs({
+              status: statusCode,
+              error: errMsg,
+              providerRequest: finalBody || translatedBody,
+              providerResponse: upstreamErrorBody,
+              clientResponse: buildErrorBody(statusCode, errMsg),
+              cacheSource: "upstream",
+            });
+            persistFailureUsage(statusCode, "context_overflow");
+            return createErrorResult(statusCode, errMsg, retryAfterMs);
+          }
+        } catch {
+          persistAttemptLogs({
+            status: statusCode,
+            error: errMsg,
+            providerRequest: finalBody || translatedBody,
+            providerResponse: upstreamErrorBody,
+            clientResponse: buildErrorBody(statusCode, errMsg),
+            cacheSource: "upstream",
+          });
+          persistFailureUsage(statusCode, "context_overflow");
+          return createErrorResult(statusCode, errMsg, retryAfterMs);
+        }
+      } else {
+        persistAttemptLogs({
+          status: statusCode,
+          error: errMsg,
+          providerRequest: finalBody || translatedBody,
+          providerResponse: upstreamErrorBody,
+          clientResponse: buildErrorBody(statusCode, errMsg),
+          cacheSource: "upstream",
+        });
+        persistFailureUsage(statusCode, "context_overflow");
         return createErrorResult(statusCode, errMsg, retryAfterMs);
       }
     } else {
@@ -1645,73 +2425,84 @@ export async function handleChatCore({
         providerRequest: finalBody || translatedBody,
         providerResponse: upstreamErrorBody,
         clientResponse: buildErrorBody(statusCode, errMsg),
+        cacheSource: "upstream",
       });
       persistFailureUsage(statusCode, `upstream_${statusCode}`);
-      return createErrorResult(statusCode, errMsg, retryAfterMs);
-    }
-    // ── End T5 ───────────────────────────────────────────────────────────────
 
-    // ── Emergency Fallback (ClawRouter Feature #09/017) ────────────────────
-    // When a non-streaming request fails with a budget-related error (402 or
-    // budget keywords), redirect to nvidia/gpt-oss-120b ($0.00/M) before
-    // returning the error to the combo router. This gives one last free-tier
-    // attempt so the user's session stays alive.
-    const requestHasTools = Array.isArray(translatedBody.tools) && translatedBody.tools.length > 0;
-    if (!stream) {
-      const fbDecision = shouldUseFallback(
-        statusCode,
-        message,
-        requestHasTools,
-        EMERGENCY_FALLBACK_CONFIG
-      );
-      if (isFallbackDecision(fbDecision)) {
-        log?.info?.("EMERGENCY_FALLBACK", fbDecision.reason);
-        try {
-          // Build a minimal fallback request using the original body but with
-          // the NVIDIA free-tier model and max_tokens capped to avoid overuse.
-          const fbExecutor = getExecutor(fbDecision.provider);
-          const fbResult = await fbExecutor.execute({
-            model: fbDecision.model,
-            body: {
-              ...translatedBody,
+      const requestHasTools =
+        Array.isArray(translatedBody.tools) && translatedBody.tools.length > 0;
+      let emergencyFallbackServed = false;
+
+      if (!disableEmergencyFallback && !stream) {
+        const fbDecision = shouldUseFallback(
+          statusCode,
+          message,
+          requestHasTools,
+          EMERGENCY_FALLBACK_CONFIG
+        );
+        if (isFallbackDecision(fbDecision)) {
+          log?.info?.("EMERGENCY_FALLBACK", fbDecision.reason);
+          try {
+            const originalProvider = provider;
+            const fbExecutor = getExecutor(fbDecision.provider);
+            const fbResult = await fbExecutor.execute({
               model: fbDecision.model,
-              max_tokens: Math.min(
-                typeof translatedBody.max_tokens === "number"
-                  ? translatedBody.max_tokens
-                  : fbDecision.maxOutputTokens,
-                fbDecision.maxOutputTokens
-              ),
-            },
-            stream: false,
-            credentials: credentials,
-            signal: streamController.signal,
-            log,
-            extendedContext,
-          });
-          if (fbResult.response.ok) {
-            providerResponse = fbResult.response;
-            providerUrl = fbResult.url;
-            providerHeaders = fbResult.headers;
-            finalBody = fbResult.transformedBody;
-            reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
-            log?.info?.(
-              "EMERGENCY_FALLBACK",
-              `Serving ${fbDecision.provider}/${fbDecision.model} as budget fallback for ${provider}/${model}`
-            );
-            // Fall through to non-streaming handler — providerResponse is now OK
-          } else {
-            log?.warn?.(
-              "EMERGENCY_FALLBACK",
-              `Emergency fallback also failed (${fbResult.response.status})`
-            );
+              body: {
+                ...translatedBody,
+                model: fbDecision.model,
+                max_tokens: Math.min(
+                  typeof translatedBody.max_tokens === "number"
+                    ? translatedBody.max_tokens
+                    : fbDecision.maxOutputTokens,
+                  fbDecision.maxOutputTokens
+                ),
+                max_completion_tokens: Math.min(
+                  typeof translatedBody.max_completion_tokens === "number"
+                    ? translatedBody.max_completion_tokens
+                    : typeof translatedBody.max_tokens === "number"
+                      ? translatedBody.max_tokens
+                      : fbDecision.maxOutputTokens,
+                  fbDecision.maxOutputTokens
+                ),
+              },
+              stream: false,
+              credentials: credentials,
+              signal: streamController.signal,
+              log,
+              extendedContext,
+            });
+            if (fbResult.response.ok) {
+              provider = fbDecision.provider;
+              model = fbDecision.model;
+              translatedBody.model = fbDecision.model;
+              providerResponse = fbResult.response;
+              providerUrl = fbResult.url;
+              providerHeaders = fbResult.headers;
+              finalBody = fbResult.transformedBody;
+              reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
+              log?.info?.(
+                "EMERGENCY_FALLBACK",
+                `Serving ${fbDecision.provider}/${fbDecision.model} as budget fallback for ${originalProvider}/${requestedModel}`
+              );
+              emergencyFallbackServed = true;
+            } else {
+              log?.warn?.(
+                "EMERGENCY_FALLBACK",
+                `Emergency fallback also failed (${fbResult.response.status})`
+              );
+            }
+          } catch (fbErr) {
+            const errMessage = fbErr instanceof Error ? fbErr.message : String(fbErr);
+            log?.warn?.("EMERGENCY_FALLBACK", `Emergency fallback error: ${errMessage}`);
           }
-        } catch (fbErr) {
-          const errMessage = fbErr instanceof Error ? fbErr.message : String(fbErr);
-          log?.warn?.("EMERGENCY_FALLBACK", `Emergency fallback error: ${errMessage}`);
         }
       }
+
+      if (!emergencyFallbackServed) {
+        return createErrorResult(statusCode, errMsg, retryAfterMs);
+      }
     }
-    // ── End Emergency Fallback ────────────────────────────────────────────
+    // ── End T5 ───────────────────────────────────────────────────────────────
   }
 
   // Non-streaming response
@@ -1719,13 +2510,23 @@ export async function handleChatCore({
     trackPendingRequest(model, provider, connectionId, false);
     const contentType = (providerResponse.headers.get("content-type") || "").toLowerCase();
     let responseBody;
+    let responsePayloadFormat = targetFormat;
     const rawBody = await providerResponse.text();
     const normalizedProviderPayload = normalizePayloadForLog(rawBody);
     const looksLikeSSE =
-      contentType.includes("text/event-stream") || /(^|\n)\s*(event|data):/m.test(rawBody);
+      contentType.includes("text/event-stream") ||
+      contentType.includes("application/x-ndjson") ||
+      /(^|\n)\s*(event|data):/m.test(rawBody);
 
     if (looksLikeSSE) {
+      const streamPayload = normalizeNonStreamingEventPayload(rawBody, contentType);
+      const streamKind = contentType.includes("application/x-ndjson") ? "NDJSON" : "SSE";
+      log?.warn?.(
+        "STREAM",
+        `Unexpected ${streamKind} response for non-streaming request — buffering`
+      );
       // Upstream returned SSE even though stream=false; convert best-effort to JSON.
+<<<<<<< HEAD
       const parsedFromSSE =
         targetFormat === FORMATS.OPENAI_RESPONSES
           ? parseSSEToResponsesOutput(rawBody, model)
@@ -1736,6 +2537,9 @@ export async function handleChatCore({
               : targetFormat === FORMATS.CLAUDE
                 ? parseSSEToClaudeResponse(rawBody, model)
                 : parseSSEToOpenAIResponse(rawBody, model);
+=======
+      const parsedFromSSE = parseNonStreamingSSEPayload(streamPayload, targetFormat, model);
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
       if (!parsedFromSSE) {
         appendRequestLog({
@@ -1751,12 +2555,14 @@ export async function handleChatCore({
           providerRequest: finalBody || translatedBody,
           providerResponse: normalizedProviderPayload,
           clientResponse: buildErrorBody(HTTP_STATUS.BAD_GATEWAY, invalidSseMessage),
+          cacheSource: "upstream",
         });
         persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "invalid_sse_payload");
         return createErrorResult(HTTP_STATUS.BAD_GATEWAY, invalidSseMessage);
       }
 
-      responseBody = parsedFromSSE;
+      responseBody = parsedFromSSE.body;
+      responsePayloadFormat = parsedFromSSE.format;
     } else {
       try {
         responseBody = rawBody ? JSON.parse(rawBody) : {};
@@ -1774,9 +2580,68 @@ export async function handleChatCore({
           providerRequest: finalBody || translatedBody,
           providerResponse: normalizedProviderPayload,
           clientResponse: buildErrorBody(HTTP_STATUS.BAD_GATEWAY, invalidJsonMessage),
+          cacheSource: "upstream",
         });
         persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "invalid_json_payload");
         return createErrorResult(HTTP_STATUS.BAD_GATEWAY, invalidJsonMessage);
+      }
+    }
+
+    // Check for empty content response (fake success) - trigger fallback
+    if (isEmptyContentResponse(responseBody)) {
+      appendRequestLog({
+        model,
+        provider,
+        connectionId,
+        status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}`,
+      }).catch(() => {});
+      const emptyContentMessage = "Provider returned empty content";
+      persistAttemptLogs({
+        status: HTTP_STATUS.BAD_GATEWAY,
+        error: emptyContentMessage,
+        providerRequest: finalBody || translatedBody,
+        providerResponse: normalizedProviderPayload,
+        clientResponse: buildErrorBody(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage),
+        cacheSource: "upstream",
+      });
+      persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "empty_content");
+
+      // Trigger non-recursive fallback for empty content
+      const nextModel = getNextFamilyFallback(currentModel, triedModels);
+      if (nextModel) {
+        triedModels.add(nextModel);
+        currentModel = nextModel;
+        translatedBody.model = nextModel;
+        log?.info?.(
+          "EMPTY_CONTENT_FALLBACK",
+          `${model} returned empty content → trying ${nextModel}`
+        );
+        try {
+          const fallbackResult = await executeProviderRequest(nextModel, false);
+          if (fallbackResult.response.ok) {
+            const fallbackRaw = await fallbackResult.response.text();
+            try {
+              responseBody = fallbackRaw ? JSON.parse(fallbackRaw) : {};
+              providerUrl = fallbackResult.url;
+              providerHeaders = fallbackResult.headers;
+              finalBody = fallbackResult.transformedBody;
+              reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
+              log?.info?.(
+                "EMPTY_CONTENT_FALLBACK",
+                `Serving ${nextModel} as fallback for ${model}`
+              );
+              // Fall through — continue processing with the new responseBody
+            } catch {
+              return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
+            }
+          } else {
+            return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
+          }
+        } catch {
+          return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
+        }
+      } else {
+        return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
       }
     }
 
@@ -1851,21 +2716,17 @@ export async function handleChatCore({
       });
     }
 
-    if (apiKeyInfo?.id && usage) {
-      const estimatedCost = await calculateCost(provider, model, usage);
-      if (estimatedCost > 0) recordCost(apiKeyInfo.id, estimatedCost);
-    }
-
     // Translate response to client's expected format (usually OpenAI)
     // Pass toolNameMap so Claude OAuth proxy_ prefix is stripped in tool_use blocks (#605)
-    let translatedResponse = needsTranslation(targetFormat, sourceFormat)
+    let translatedResponse = needsTranslation(responsePayloadFormat, clientResponseFormat)
       ? translateNonStreamingResponse(
           responseBody,
-          targetFormat,
-          sourceFormat,
+          responsePayloadFormat,
+          clientResponseFormat,
           toolNameMap as Map<string, string> | null
         )
       : responseBody;
+    const memoryExtractionResponse = translatedResponse;
 
     // T26: Strip markdown code blocks if provider format is Claude
     if (sourceFormat === "claude" && !stream) {
@@ -1893,28 +2754,125 @@ export async function handleChatCore({
     // Strips non-standard fields (x_groq, usage_breakdown, service_tier, etc.)
     // Extracts <think> and <thinking> tags into reasoning_content
     // Source format determines output shape. If we are outputting OpenAI shape or pseudo-OpenAI shape, sanitize.
-    if (sourceFormat === FORMATS.OPENAI || sourceFormat === FORMATS.OPENAI_RESPONSES) {
+    if (clientResponseFormat === FORMATS.OPENAI_RESPONSES) {
+      translatedResponse = sanitizeResponsesApiResponse(translatedResponse);
+    } else if (clientResponseFormat === FORMATS.OPENAI) {
       translatedResponse = sanitizeOpenAIResponse(translatedResponse);
     }
 
     // Add buffer and filter usage for client (to prevent CLI context errors)
     if (translatedResponse?.usage) {
       const buffered = addBufferToUsage(translatedResponse.usage);
-      translatedResponse.usage = filterUsageForFormat(buffered, sourceFormat);
+      translatedResponse.usage = filterUsageForFormat(buffered, clientResponseFormat);
     } else {
       // Fallback: estimate usage when provider returned no usage block
       const contentLength = JSON.stringify(
         translatedResponse?.choices?.[0]?.message?.content || ""
       ).length;
       if (contentLength > 0) {
-        const estimated = estimateUsage(body, contentLength, sourceFormat);
-        translatedResponse.usage = filterUsageForFormat(estimated, sourceFormat);
+        const estimated = estimateUsage(body, contentLength, clientResponseFormat);
+        translatedResponse.usage = filterUsageForFormat(estimated, clientResponseFormat);
       }
     }
 
+    if (memoryOwnerId && memorySettings?.enabled && memorySettings.maxTokens > 0) {
+      const requestMemoryText = extractMemoryTextFromRequestBody(body as Record<string, unknown>);
+      if (requestMemoryText) {
+        extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
+      }
+
+      const memoryText = extractMemoryTextFromResponse(memoryExtractionResponse);
+      if (memoryText) {
+        extractFacts(memoryText, memoryOwnerId, pipelineSessionId);
+      }
+    }
+
+    const customSkillExecutionEnabled =
+      Boolean(memoryOwnerId) && memorySettings?.skillsEnabled === true;
+    const builtinToolNames = webSearchFallbackPlan.toolName ? [webSearchFallbackPlan.toolName] : [];
+    if (customSkillExecutionEnabled || builtinToolNames.length > 0) {
+      const skillSessionId = pipelineSessionId;
+
+      translatedResponse = await handleToolCallExecution(
+        translatedResponse,
+        getSkillsModelIdForFormat(sourceFormat),
+        {
+          apiKeyId: memoryOwnerId || "local",
+          sessionId: skillSessionId,
+          requestId: skillRequestId,
+          builtinToolNames,
+          customSkillExecutionEnabled,
+        }
+      );
+    }
+
+    const guardrailContext = {
+      apiKeyInfo,
+      disabledGuardrails: resolveDisabledGuardrails({
+        apiKeyInfo: (apiKeyInfo as Record<string, unknown> | null) ?? null,
+        body,
+        headers: (clientRawRequest?.headers as Headers | Record<string, unknown> | null) ?? null,
+      }),
+      endpoint: clientRawRequest?.endpoint || null,
+      headers: (clientRawRequest?.headers as Headers | Record<string, unknown> | null) ?? null,
+      log,
+      method: "POST",
+      model,
+      provider,
+      sourceFormat: responsePayloadFormat,
+      stream: false,
+      targetFormat: clientResponseFormat,
+    } as const;
+    const postCallGuardrails = await guardrailRegistry.runPostCallHooks(
+      translatedResponse,
+      guardrailContext
+    );
+    translatedResponse = postCallGuardrails.response;
+
+    const responseUsage =
+      (usage && typeof usage === "object" ? usage : null) ||
+      (translatedResponse?.usage && typeof translatedResponse.usage === "object"
+        ? translatedResponse.usage
+        : null);
+    const estimatedCost = responseUsage ? await calculateCost(provider, model, responseUsage) : 0;
+
+    if (postCallGuardrails.blocked) {
+      const guardrailMessage = postCallGuardrails.message || "Response blocked by guardrail";
+      persistAttemptLogs({
+        status: HTTP_STATUS.BAD_REQUEST,
+        tokens: usage,
+        responseBody,
+        providerRequest: finalBody || translatedBody,
+        providerResponse: looksLikeSSE
+          ? {
+              _streamed: true,
+              _format: "sse-json",
+              summary: responseBody,
+            }
+          : responseBody,
+        clientResponse: buildErrorBody(HTTP_STATUS.BAD_REQUEST, guardrailMessage),
+        claudeCacheMeta: claudePromptCacheLogMeta,
+        claudeCacheUsageMeta: cacheUsageLogMeta,
+        cacheSource: "upstream",
+      });
+      if (apiKeyInfo?.id && estimatedCost > 0) {
+        recordCost(apiKeyInfo.id, estimatedCost);
+      }
+      log?.warn?.(
+        "GUARDRAIL",
+        `Response blocked by ${postCallGuardrails.guardrail || "guardrail"}: ${guardrailMessage}`
+      );
+      return createErrorResult(HTTP_STATUS.BAD_REQUEST, guardrailMessage);
+    }
+
     // ── Phase 9.1: Cache store (non-streaming, temp=0) ──
-    if (isCacheable(body, clientRawRequest?.headers)) {
-      const signature = generateSignature(model, body.messages, body.temperature, body.top_p);
+    if (semanticCacheEnabled && isCacheableForWrite(body, clientRawRequest?.headers)) {
+      const signature = generateSignature(
+        model,
+        body.messages ?? body.input,
+        body.temperature,
+        body.top_p
+      );
       const tokensSaved = usage?.prompt_tokens + usage?.completion_tokens || 0;
       setCachedResponse(signature, model, translatedResponse, tokensSaved);
       log?.debug?.("CACHE", `Stored response for ${model} (${tokensSaved} tokens)`);
@@ -1938,7 +2896,11 @@ export async function handleChatCore({
       clientResponse: translatedResponse,
       claudeCacheMeta: claudePromptCacheLogMeta,
       claudeCacheUsageMeta: cacheUsageLogMeta,
+      cacheSource: "upstream",
     });
+    if (apiKeyInfo?.id && estimatedCost > 0) {
+      recordCost(apiKeyInfo.id, estimatedCost);
+    }
 
     return {
       success: true,
@@ -1946,7 +2908,15 @@ export async function handleChatCore({
         headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": getCorsOrigin(),
-          "X-OmniRoute-Cache": "MISS",
+          [OMNIROUTE_RESPONSE_HEADERS.cache]: "MISS",
+          ...buildOmniRouteResponseMetaHeaders({
+            provider,
+            model,
+            cacheHit: false,
+            latencyMs: Date.now() - startTime,
+            usage: responseUsage,
+            costUsd: estimatedCost,
+          }),
         },
       }),
     };
@@ -1964,6 +2934,15 @@ export async function handleChatCore({
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
     "Access-Control-Allow-Origin": getCorsOrigin(),
+    [OMNIROUTE_RESPONSE_HEADERS.cache]: "MISS",
+    ...buildOmniRouteResponseMetaHeaders({
+      provider,
+      model,
+      cacheHit: false,
+      latencyMs: 0,
+      usage: null,
+      costUsd: 0,
+    }),
   };
 
   // Create transform stream with logger for streaming response
@@ -2028,6 +3007,7 @@ export async function handleChatCore({
       clientResponse: clientPayload ?? streamResponseBody ?? undefined,
       claudeCacheMeta: claudePromptCacheLogMeta,
       claudeCacheUsageMeta: cacheUsageLogMeta,
+      cacheSource: "upstream",
     });
 
     if (apiKeyInfo?.id && streamUsage) {
@@ -2037,15 +3017,58 @@ export async function handleChatCore({
         })
         .catch(() => {});
     }
+
+    if (
+      memoryOwnerId &&
+      memorySettings?.enabled &&
+      memorySettings.maxTokens > 0 &&
+      streamStatus === 200
+    ) {
+      const requestMemoryText = extractMemoryTextFromRequestBody(body as Record<string, unknown>);
+      if (requestMemoryText) {
+        extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
+      }
+
+      const streamedMemoryText = extractMemoryTextFromResponse(
+        (streamResponseBody ?? null) as Record<string, unknown> | null
+      );
+      if (streamedMemoryText) {
+        extractFacts(streamedMemoryText, memoryOwnerId, pipelineSessionId);
+      }
+    }
+
+    // Semantic cache: store assembled streaming response for future cache hits
+    if (
+      semanticCacheEnabled &&
+      streamStatus === 200 &&
+      streamResponseBody &&
+      isCacheableForWrite(body, clientRawRequest?.headers)
+    ) {
+      try {
+        const cleanBody = { ...streamResponseBody };
+        delete cleanBody._streamed;
+        const sig = generateSignature(
+          model,
+          body.messages ?? body.input,
+          body.temperature,
+          body.top_p
+        );
+        const u = streamUsage as Record<string, unknown> | null;
+        const tokensSaved =
+          (Number(u?.prompt_tokens ?? 0) || 0) + (Number(u?.completion_tokens ?? 0) || 0);
+        setCachedResponse(sig, model, cleanBody, tokensSaved);
+        log?.debug?.("CACHE", `Stored streaming response for ${model} (${tokensSaved} tokens)`);
+      } catch {
+        // Cache write failed — non-critical
+      }
+    }
   };
 
   // For providers using Responses API format, translate stream back to openai (Chat Completions) format
   // UNLESS client is Droid CLI which expects openai-responses format back
-  const isDroidCLI =
-    userAgent?.toLowerCase().includes("droid") || userAgent?.toLowerCase().includes("codex-cli");
   const needsResponsesTranslation =
     targetFormat === FORMATS.OPENAI_RESPONSES &&
-    sourceFormat === FORMATS.OPENAI &&
+    clientResponseFormat === FORMATS.OPENAI &&
     !isResponsesEndpoint &&
     !isDroidCLI;
 
@@ -2064,12 +3087,12 @@ export async function handleChatCore({
       onStreamComplete,
       apiKeyInfo
     );
-  } else if (needsTranslation(targetFormat, sourceFormat)) {
+  } else if (needsTranslation(targetFormat, clientResponseFormat)) {
     // Standard translation for other providers
-    log?.debug?.("STREAM", `Translation mode: ${targetFormat} → ${sourceFormat}`);
+    log?.debug?.("STREAM", `Translation mode: ${targetFormat} → ${clientResponseFormat}`);
     transformStream = createSSETransformStreamWithLogger(
       targetFormat,
-      sourceFormat,
+      clientResponseFormat,
       provider,
       reqLogger,
       toolNameMap,
@@ -2101,7 +3124,7 @@ export async function handleChatCore({
     // Chain: provider → transform → progress → client
     const transformedBody = pipeWithDisconnect(providerResponse, transformStream, streamController);
     finalStream = transformedBody.pipeThrough(progressTransform);
-    responseHeaders["X-OmniRoute-Progress"] = "enabled";
+    responseHeaders[OMNIROUTE_RESPONSE_HEADERS.progress] = "enabled";
   } else {
     finalStream = pipeWithDisconnect(providerResponse, transformStream, streamController);
   }

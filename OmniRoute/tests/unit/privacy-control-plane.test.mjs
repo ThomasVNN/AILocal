@@ -43,9 +43,7 @@ async function enableDefaultProfile() {
 
 test("privacy control plane workspace adapts store config into task-first models", async () => {
   await enableDefaultProfile();
-  const { getPrivacyControlPlaneWorkspace } = await import(
-    "../../src/lib/privacy/controlPlane.ts"
-  );
+  const { getPrivacyControlPlaneWorkspace } = await import("../../src/lib/privacy/controlPlane.ts");
 
   const workspace = await getPrivacyControlPlaneWorkspace();
 
@@ -121,9 +119,8 @@ test("privacy control plane saves settings and publishes or rolls back bundles",
 test("privacy control plane exposes effective policy previews for source/profile overrides", async () => {
   await enableDefaultProfile();
   const { getPrivacyConfig } = await import("../../src/lib/privacy/store.ts");
-  const { getPrivacyControlPlaneWorkspace, patchPrivacyControlPlane } = await import(
-    "../../src/lib/privacy/controlPlane.ts"
-  );
+  const { getPrivacyControlPlaneWorkspace, patchPrivacyControlPlane } =
+    await import("../../src/lib/privacy/controlPlane.ts");
   const config = await getPrivacyConfig();
 
   await patchPrivacyControlPlane({
@@ -159,11 +156,8 @@ test("privacy control plane exposes effective policy previews for source/profile
 test("privacy control plane test runner honors active versus draft bundle selection", async () => {
   await enableDefaultProfile();
   const { getPrivacyConfig } = await import("../../src/lib/privacy/store.ts");
-  const {
-    getPrivacyControlPlaneWorkspace,
-    patchPrivacyControlPlane,
-    runPrivacyControlPlaneTest,
-  } = await import("../../src/lib/privacy/controlPlane.ts");
+  const { getPrivacyControlPlaneWorkspace, patchPrivacyControlPlane, runPrivacyControlPlaneTest } =
+    await import("../../src/lib/privacy/controlPlane.ts");
   const config = await getPrivacyConfig();
 
   await patchPrivacyControlPlane({

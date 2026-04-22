@@ -2,12 +2,16 @@ export type RoutingStrategyValue =
   | "priority"
   | "weighted"
   | "round-robin"
+  | "context-relay"
   | "fill-first"
   | "p2c"
   | "random"
   | "least-used"
   | "cost-optimized"
-  | "strict-random";
+  | "strict-random"
+  | "auto"
+  | "context-optimized"
+  | "lkgp";
 
 type RoutingStrategyOption = {
   value: RoutingStrategyValue;
@@ -38,6 +42,13 @@ export const ROUTING_STRATEGIES: RoutingStrategyOption[] = [
     combosDescKey: "roundRobinDesc",
     settingsDescKey: "roundRobinDesc",
     icon: "autorenew",
+  },
+  {
+    value: "context-relay",
+    labelKey: "contextRelay",
+    combosDescKey: "contextRelayDesc",
+    settingsDescKey: "contextRelayDesc",
+    icon: "sync_alt",
   },
   {
     value: "fill-first",
@@ -81,6 +92,27 @@ export const ROUTING_STRATEGIES: RoutingStrategyOption[] = [
     settingsDescKey: "strictRandomDesc",
     icon: "casino",
   },
+  {
+    value: "auto",
+    labelKey: "auto",
+    combosDescKey: "autoDesc",
+    settingsDescKey: "autoDesc",
+    icon: "auto_awesome",
+  },
+  {
+    value: "lkgp",
+    labelKey: "lkgp",
+    combosDescKey: "lkgpDesc",
+    settingsDescKey: "lkgpDesc",
+    icon: "verified",
+  },
+  {
+    value: "context-optimized",
+    labelKey: "contextOpt",
+    combosDescKey: "contextOptimizedDesc",
+    settingsDescKey: "contextOptDesc",
+    icon: "text_snippet",
+  },
 ];
 
 export const SETTINGS_FALLBACK_STRATEGY_VALUES: RoutingStrategyValue[] = [
@@ -93,4 +125,7 @@ export const SETTINGS_FALLBACK_STRATEGY_VALUES: RoutingStrategyValue[] = [
   "least-used",
   "cost-optimized",
   "strict-random",
+  "auto",
+  "context-optimized",
+  "lkgp",
 ];

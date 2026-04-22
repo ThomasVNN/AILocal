@@ -122,7 +122,13 @@ const workspacePayload = {
     updatedAt: "2026-04-20T09:00:00.000Z",
   },
   sourceApps: [
-    { id: "src-openwebui", key: "openwebui", name: "OpenWebUI", environment: "local", active: true },
+    {
+      id: "src-openwebui",
+      key: "openwebui",
+      name: "OpenWebUI",
+      environment: "local",
+      active: true,
+    },
     {
       id: "src-openclaw",
       key: "openclaw-gw",
@@ -238,7 +244,12 @@ const testResultPayload = {
       },
     ],
     pipeline: [
-      { step: "Detect", status: "matched", detail: "2 entities detected", ruleIds: ["rule-email", "rule-project"] },
+      {
+        step: "Detect",
+        status: "matched",
+        detail: "2 entities detected",
+        ruleIds: ["rule-email", "rule-project"],
+      },
       { step: "Classify", status: "completed", detail: "Highest level L2" },
       { step: "Transform", status: "completed", detail: "Mask and tokenize applied" },
       { step: "Validate", status: "passed", detail: "Sanitized output passed validation" },
@@ -388,7 +399,9 @@ describe("PrivacyFilterPageClient", () => {
     expect(screen.getByText("Validate")).toBeInTheDocument();
     expect(screen.getByText("Restore")).toBeInTheDocument();
     expect(screen.getByText("Regex matched personal email")).toBeInTheDocument();
-    expect(screen.getByText("Sanitized request is safe for configured provider routing.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sanitized request is safe for configured provider routing.")
+    ).toBeInTheDocument();
   });
 
   it("shows incident details with investigation actions and release publish/rollback safety", async () => {
@@ -408,7 +421,11 @@ describe("PrivacyFilterPageClient", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Publish Draft" }));
     const publishDialog = screen.getByRole("dialog", { name: "Publish privacy bundle" });
-    expect(within(publishDialog).getByText("This publishes draft policy changes to the live outbound AI path.")).toBeInTheDocument();
+    expect(
+      within(publishDialog).getByText(
+        "This publishes draft policy changes to the live outbound AI path."
+      )
+    ).toBeInTheDocument();
     fireEvent.click(within(publishDialog).getByRole("button", { name: "Publish Bundle" }));
 
     await waitFor(() => {
@@ -437,7 +454,9 @@ describe("PrivacyFilterPageClient", () => {
   it("keeps Privacy Filter settings separate and saves privacy-specific controls", async () => {
     render(<PrivacyFilterPageClient initialView="settings" />);
 
-    expect(await screen.findByRole("heading", { name: "Privacy Filter Settings" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Privacy Filter Settings" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Entity Vault")).toBeInTheDocument();
     expect(screen.getByText("Validator Defaults")).toBeInTheDocument();
     expect(screen.getByText("Audit Retention")).toBeInTheDocument();

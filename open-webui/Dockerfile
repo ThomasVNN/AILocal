@@ -5,11 +5,11 @@ FROM node:22-alpine AS frontend-build
 
 WORKDIR /app
 
-ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # install deps (cache tốt)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci || npm install --legacy-peer-deps
 
 # copy source
 COPY . .

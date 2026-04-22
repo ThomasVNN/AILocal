@@ -20,8 +20,17 @@ import { getAllMusicModels } from "@omniroute/open-sse/config/musicRegistry.ts";
 import { REGISTRY } from "@omniroute/open-sse/config/providerRegistry.ts";
 import { getSyncedAvailableModels } from "@/lib/db/models";
 import { getCompatibleFallbackModels } from "@/lib/providers/managedAvailableModels";
+<<<<<<< HEAD
 import { discoverPerplexityWebModels } from "@omniroute/open-sse/utils/perplexityWebModels.ts";
 import { discoverChatgptWebModels } from "@omniroute/open-sse/utils/chatgptWebModels.ts";
+=======
+import { hasEligibleConnectionForModel } from "@/domain/connectionModelRules";
+import {
+  INTERNAL_PROXY_ERROR,
+  enrichCatalogModelEntry,
+  getCatalogDiagnosticsHeaders,
+} from "@/lib/modelMetadataRegistry";
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
 
 const FALLBACK_ALIAS_TO_PROVIDER = {
   ag: "antigravity",
@@ -31,7 +40,6 @@ const FALLBACK_ALIAS_TO_PROVIDER = {
   cx: "codex",
   gc: "gemini-cli",
   gh: "github",
-  if: "iflow",
   kc: "kilocode",
   kmc: "kimi-coding",
   kr: "kiro",
@@ -144,6 +152,7 @@ export async function getUnifiedModelsResponse(
     "Access-Control-Allow-Origin": CORS_ORIGIN,
   }
 ) {
+  const diagnosticHeaders = getCatalogDiagnosticsHeaders({ request });
   try {
     // Issue #100: Optionally require authentication for /models (security hardening)
     // When enabled, unauthenticated requests get 401 with proper error response.
@@ -162,7 +171,13 @@ export async function getUnifiedModelsResponse(
               code: "invalid_api_key",
             },
           },
-          { status: 401 }
+          {
+            status: 401,
+            headers: {
+              ...corsHeaders,
+              ...diagnosticHeaders,
+            },
+          }
         );
       }
     }
@@ -217,11 +232,46 @@ export async function getUnifiedModelsResponse(
 
     // Build set of active provider aliases
     const activeAliases = new Set();
+    const connectionsByProvider = new Map<string, typeof connections>();
+    const registerConnectionKey = (
+      key: string | null | undefined,
+      connection: (typeof connections)[number]
+    ) => {
+      if (!key) return;
+      const existing = connectionsByProvider.get(key) || [];
+      existing.push(connection);
+      connectionsByProvider.set(key, existing);
+    };
     for (const conn of connections) {
       const alias = providerIdToAlias[conn.provider] || conn.provider;
       activeAliases.add(alias);
       activeAliases.add(conn.provider);
+      registerConnectionKey(alias, conn);
+      registerConnectionKey(conn.provider, conn);
     }
+
+    const getConnectionsForProvider = (...keys: Array<string | null | undefined>) => {
+      const seen = new Set<string>();
+      const collected: typeof connections = [];
+      for (const key of keys) {
+        if (!key) continue;
+        for (const connection of connectionsByProvider.get(key) || []) {
+          if (!connection?.id || seen.has(connection.id)) continue;
+          seen.add(connection.id);
+          collected.push(connection);
+        }
+      }
+      return collected;
+    };
+
+    const providerSupportsModel = (providerKey: string, modelId: string) => {
+      const providerId = aliasToProviderId[providerKey] || providerKey;
+      const alias = providerIdToAlias[providerId] || providerKey;
+      return hasEligibleConnectionForModel(
+        getConnectionsForProvider(providerKey, providerId, alias),
+        modelId
+      );
+    };
 
     // Collect models from active providers (or all if none active)
     const models = [];
@@ -295,6 +345,7 @@ export async function getUnifiedModelsResponse(
       const registryEntry = REGISTRY[alias] || REGISTRY[canonicalProviderId];
       const defaultContextLength = registryEntry?.defaultContextLength;
 
+<<<<<<< HEAD
       const effectiveModels =
         canonicalProviderId === "perplexity-web2api"
           ? dynamicProviderModels.get("perplexity-web2api") || providerModels
@@ -304,6 +355,11 @@ export async function getUnifiedModelsResponse(
 
       for (const model of effectiveModels) {
         const aliasId = `${primaryPrefix}/${model.id}`;
+=======
+      for (const model of providerModels) {
+        if (!providerSupportsModel(canonicalProviderId, model.id)) continue;
+        const aliasId = `${alias}/${model.id}`;
+>>>>>>> 08d0e9f8b4e412fea54cb5999c022bd368bfb9cd
         if (getModelIsHidden(canonicalProviderId, model.id)) continue;
 
         const visionFields =
@@ -350,6 +406,7 @@ export async function getUnifiedModelsResponse(
       try {
         const syncedModels = await getSyncedAvailableModels("gemini");
         for (const sm of syncedModels) {
+          if (!providerSupportsModel("gemini", sm.id)) continue;
           const aliasId = `gemini/${sm.id}`;
           if (getModelIsHidden("gemini", sm.id)) continue;
 
@@ -410,6 +467,8 @@ export async function getUnifiedModelsResponse(
     // Add embedding models (filtered by active providers)
     for (const embModel of getAllEmbeddingModels()) {
       if (!isProviderActive(embModel.provider)) continue;
+      const rawModelId = embModel.id.split("/").pop() || embModel.id;
+      if (!providerSupportsModel(embModel.provider, rawModelId)) continue;
       models.push({
         id: embModel.id,
         object: "model",
@@ -423,6 +482,8 @@ export async function getUnifiedModelsResponse(
     // Add image models (filtered by active providers)
     for (const imgModel of getAllImageModels()) {
       if (!isProviderActive(imgModel.provider)) continue;
+      const rawModelId = imgModel.id.split("/").pop() || imgModel.id;
+      if (!providerSupportsModel(imgModel.provider, rawModelId)) continue;
       models.push({
         id: imgModel.id,
         object: "model",
@@ -430,12 +491,17 @@ export async function getUnifiedModelsResponse(
         owned_by: imgModel.provider,
         type: "image",
         supported_sizes: imgModel.supportedSizes,
+        input_modalities: imgModel.inputModalities || ["text"],
+        output_modalities: ["image"],
+        ...(imgModel.description ? { description: imgModel.description } : {}),
       });
     }
 
     // Add rerank models (filtered by active providers)
     for (const rerankModel of getAllRerankModels()) {
       if (!isProviderActive(rerankModel.provider)) continue;
+      const rawModelId = rerankModel.id.split("/").pop() || rerankModel.id;
+      if (!providerSupportsModel(rerankModel.provider, rawModelId)) continue;
       models.push({
         id: rerankModel.id,
         object: "model",
@@ -448,6 +514,8 @@ export async function getUnifiedModelsResponse(
     // Add audio models (filtered by active providers)
     for (const audioModel of getAllAudioModels()) {
       if (!isProviderActive(audioModel.provider)) continue;
+      const rawModelId = audioModel.id.split("/").pop() || audioModel.id;
+      if (!providerSupportsModel(audioModel.provider, rawModelId)) continue;
       models.push({
         id: audioModel.id,
         object: "model",
@@ -461,6 +529,8 @@ export async function getUnifiedModelsResponse(
     // Add moderation models (filtered by active providers)
     for (const modModel of getAllModerationModels()) {
       if (!isProviderActive(modModel.provider)) continue;
+      const rawModelId = modModel.id.split("/").pop() || modModel.id;
+      if (!providerSupportsModel(modModel.provider, rawModelId)) continue;
       models.push({
         id: modModel.id,
         object: "model",
@@ -473,6 +543,8 @@ export async function getUnifiedModelsResponse(
     // Add video models (filtered by active providers)
     for (const videoModel of getAllVideoModels()) {
       if (!isProviderActive(videoModel.provider)) continue;
+      const rawModelId = videoModel.id.split("/").pop() || videoModel.id;
+      if (!providerSupportsModel(videoModel.provider, rawModelId)) continue;
       models.push({
         id: videoModel.id,
         object: "model",
@@ -485,6 +557,8 @@ export async function getUnifiedModelsResponse(
     // Add music models (filtered by active providers)
     for (const musicModel of getAllMusicModels()) {
       if (!isProviderActive(musicModel.provider)) continue;
+      const rawModelId = musicModel.id.split("/").pop() || musicModel.id;
+      if (!providerSupportsModel(musicModel.provider, rawModelId)) continue;
       models.push({
         id: musicModel.id,
         object: "model",
@@ -526,6 +600,14 @@ export async function getUnifiedModelsResponse(
           const modelId = typeof model.id === "string" ? model.id : null;
           if (!modelId) continue;
           if (model.isHidden === true) continue;
+          if (
+            !hasEligibleConnectionForModel(
+              getConnectionsForProvider(alias, canonicalProviderId, providerId, parentProviderType),
+              modelId
+            )
+          ) {
+            continue;
+          }
 
           // Skip if already added as built-in
           const aliasId = `${alias}/${modelId}`;
@@ -613,6 +695,7 @@ export async function getUnifiedModelsResponse(
         const modelId = typeof model.id === "string" ? model.id : null;
         if (!modelId) continue;
         if (getModelIsHidden(providerId, modelId)) continue;
+        if (!hasEligibleConnectionForModel([conn], modelId)) continue;
 
         const aliasId = `${alias}/${modelId}`;
         if (models.some((m) => m.id === aliasId)) continue;
@@ -664,20 +747,37 @@ export async function getUnifiedModelsResponse(
       }
     }
 
+    const enrichedModels = finalModels.map((model) => enrichCatalogModelEntry(model));
+
     return Response.json(
       {
         object: "list",
-        data: finalModels,
+        data: enrichedModels,
       },
       {
-        headers: corsHeaders,
+        headers: {
+          ...corsHeaders,
+          ...diagnosticHeaders,
+        },
       }
     );
   } catch (error) {
     console.log("Error fetching models:", error);
     return Response.json(
-      { error: { message: (error as any).message, type: "server_error" } },
-      { status: 500 }
+      {
+        error: {
+          message: (error as any).message,
+          type: "server_error",
+          code: INTERNAL_PROXY_ERROR,
+        },
+      },
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          ...diagnosticHeaders,
+        },
+      }
     );
   }
 }

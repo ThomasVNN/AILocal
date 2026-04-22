@@ -49,7 +49,10 @@ const VIEWS: Array<{ value: PrivacyFilterView; label: string; icon: string }> = 
   { value: "settings", label: "Settings", icon: "tune" },
 ];
 
-const LEVEL_META: Record<PrivacyLevel, { label: string; variant: "error" | "warning" | "info" | "success" }> = {
+const LEVEL_META: Record<
+  PrivacyLevel,
+  { label: string; variant: "error" | "warning" | "info" | "success" }
+> = {
   L1: { label: "L1 Critical", variant: "error" },
   L2: { label: "L2 High", variant: "warning" },
   L3: { label: "L3 Medium", variant: "info" },
@@ -283,14 +286,42 @@ function OverviewView({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Scanned requests" value={formatNumber(overview.scannedRequests)} icon="shield_scan" tone="text-primary" />
-        <StatCard title="Blocked requests" value={formatNumber(overview.blockedRequests)} icon="block" tone="text-red-500" />
-        <StatCard title="Transformed requests" value={formatNumber(overview.transformedRequests)} icon="switch_access_shortcut" tone="text-amber-500" />
-        <StatCard title="Managed rules" value={formatNumber(overview.managedRules)} icon="rule" tone="text-blue-500" />
-        <StatCard title="Active bundle" value={overview.activeBundleVersion} icon="verified" tone="text-green-500" />
+        <StatCard
+          title="Scanned requests"
+          value={formatNumber(overview.scannedRequests)}
+          icon="shield_scan"
+          tone="text-primary"
+        />
+        <StatCard
+          title="Blocked requests"
+          value={formatNumber(overview.blockedRequests)}
+          icon="block"
+          tone="text-red-500"
+        />
+        <StatCard
+          title="Transformed requests"
+          value={formatNumber(overview.transformedRequests)}
+          icon="switch_access_shortcut"
+          tone="text-amber-500"
+        />
+        <StatCard
+          title="Managed rules"
+          value={formatNumber(overview.managedRules)}
+          icon="rule"
+          tone="text-blue-500"
+        />
+        <StatCard
+          title="Active bundle"
+          value={overview.activeBundleVersion}
+          icon="verified"
+          tone="text-green-500"
+        />
       </div>
 
-      <Card padding="sm" className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <Card
+        padding="sm"
+        className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+      >
         <div>
           <p className="text-sm font-semibold text-text-main">Operational quick actions</p>
           <p className="text-sm text-text-muted">
@@ -308,7 +339,10 @@ function OverviewView({
       <div className="grid gap-4 xl:grid-cols-3">
         <Card title="Top source apps" icon="apps">
           {overview.topSourceApps.length === 0 ? (
-            <EmptyBlock title="No source traffic yet" description="Runtime events will appear here after clients call the gateway." />
+            <EmptyBlock
+              title="No source traffic yet"
+              description="Runtime events will appear here after clients call the gateway."
+            />
           ) : (
             <div className="space-y-3">
               {overview.topSourceApps.map((source) => (
@@ -332,7 +366,10 @@ function OverviewView({
 
         <Card title="Latest incidents" icon="policy_alert">
           {overview.latestIncidents.length === 0 ? (
-            <EmptyBlock title="No incidents" description="Blocked or unsafe events will be shown with rule and bundle context." />
+            <EmptyBlock
+              title="No incidents"
+              description="Blocked or unsafe events will be shown with rule and bundle context."
+            />
           ) : (
             <div className="space-y-2">
               {overview.latestIncidents.map((incident) => (
@@ -375,7 +412,10 @@ function OverviewView({
             {overview.bundleHealth.warnings.length > 0 ? (
               <div className="space-y-2">
                 {overview.bundleHealth.warnings.map((warning) => (
-                  <div key={warning} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-300"
+                  >
                     {warning}
                   </div>
                 ))}
@@ -423,7 +463,9 @@ function PolicyStudioView({
 }) {
   const config = workspace.config;
   const filteredEntities = config.entityTypes.filter((entity) =>
-    `${entity.name} ${entity.id} ${entity.category}`.toLowerCase().includes(entitySearch.toLowerCase())
+    `${entity.name} ${entity.id} ${entity.category}`
+      .toLowerCase()
+      .includes(entitySearch.toLowerCase())
   );
   const selectedEntity = editor ? getEntity(config, editor.entityTypeId) : null;
   const selectedEffectivePolicies =
@@ -486,7 +528,11 @@ function PolicyStudioView({
         </div>
       </Card>
 
-      <Card title="Rule Builder" subtitle="Form-first authoring with scoped overrides and matcher preview." icon="rule_settings">
+      <Card
+        title="Rule Builder"
+        subtitle="Form-first authoring with scoped overrides and matcher preview."
+        icon="rule_settings"
+      >
         <div className="mb-4 grid gap-3 md:grid-cols-2">
           {config.rules.map((rule) => (
             <button
@@ -537,10 +583,10 @@ function PolicyStudioView({
                   onChange={(event) => setEditor({ ...editor, id: event.target.value })}
                 />
               </Field>
-          <Field label="Entity type">
-            <select
-              aria-label="Entity type"
-              className={inputClass()}
+              <Field label="Entity type">
+                <select
+                  aria-label="Entity type"
+                  className={inputClass()}
                   value={editor.entityTypeId}
                   onChange={(event) => {
                     const entity = getEntity(config, event.target.value);
@@ -554,13 +600,13 @@ function PolicyStudioView({
                     });
                   }}
                 >
-                {config.entityTypes.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name} ({entity.id})
-                  </option>
-                ))}
-              </select>
-            </Field>
+                  {config.entityTypes.map((entity) => (
+                    <option key={entity.id} value={entity.id}>
+                      {entity.name} ({entity.id})
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Detection method">
                 <select
                   aria-label="Detection method"
@@ -599,7 +645,10 @@ function PolicyStudioView({
                   className={inputClass()}
                   value={editor.transformMode}
                   onChange={(event) =>
-                    setEditor({ ...editor, transformMode: event.target.value as PrivacyTransformMode })
+                    setEditor({
+                      ...editor,
+                      transformMode: event.target.value as PrivacyTransformMode,
+                    })
                   }
                 >
                   {ACTIONS.map((action) => (
@@ -644,7 +693,9 @@ function PolicyStudioView({
                   max="1"
                   step="0.01"
                   value={editor.confidence}
-                  onChange={(event) => setEditor({ ...editor, confidence: Number(event.target.value) })}
+                  onChange={(event) =>
+                    setEditor({ ...editor, confidence: Number(event.target.value) })
+                  }
                 />
               </Field>
               <Field label="Priority">
@@ -653,7 +704,9 @@ function PolicyStudioView({
                   className={inputClass()}
                   type="number"
                   value={editor.priority}
-                  onChange={(event) => setEditor({ ...editor, priority: Number(event.target.value) })}
+                  onChange={(event) =>
+                    setEditor({ ...editor, priority: Number(event.target.value) })
+                  }
                 />
               </Field>
               <Field label="Placeholder prefix">
@@ -661,7 +714,9 @@ function PolicyStudioView({
                   aria-label="Placeholder prefix"
                   className={inputClass()}
                   value={editor.placeholderPrefix}
-                  onChange={(event) => setEditor({ ...editor, placeholderPrefix: event.target.value })}
+                  onChange={(event) =>
+                    setEditor({ ...editor, placeholderPrefix: event.target.value })
+                  }
                 />
               </Field>
               <Field label="Restore mode">
@@ -670,7 +725,10 @@ function PolicyStudioView({
                   className={inputClass()}
                   value={editor.restoreMode}
                   onChange={(event) =>
-                    setEditor({ ...editor, restoreMode: event.target.value as PrivacyEntityType["restoreMode"] })
+                    setEditor({
+                      ...editor,
+                      restoreMode: event.target.value as PrivacyEntityType["restoreMode"],
+                    })
                   }
                 >
                   <option value="never">Never</option>
@@ -737,11 +795,18 @@ function PolicyStudioView({
             </div>
           </div>
         ) : (
-          <EmptyBlock title="No rule selected" description="Create or select a rule to begin authoring." />
+          <EmptyBlock
+            title="No rule selected"
+            description="Create or select a rule to begin authoring."
+          />
         )}
       </Card>
 
-      <Card title="Policy Impact" subtitle="Effective behavior summary and warnings." icon="preview">
+      <Card
+        title="Policy Impact"
+        subtitle="Effective behavior summary and warnings."
+        icon="preview"
+      >
         {selectedEntity && editor ? (
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-bg/60 p-3">
@@ -755,7 +820,9 @@ function PolicyStudioView({
               </div>
             </div>
             <div className="rounded-lg border border-border bg-bg/60 p-3">
-              <p className="text-xs uppercase tracking-wide text-text-muted">Sample transformation preview</p>
+              <p className="text-xs uppercase tracking-wide text-text-muted">
+                Sample transformation preview
+              </p>
               <p className="mt-2 font-mono text-sm text-text-main">
                 {editor.transformMode === "BLOCK"
                   ? "Request blocked before provider call"
@@ -771,23 +838,27 @@ function PolicyStudioView({
                 <p className="text-sm font-semibold text-text-main">Effective scoped behavior</p>
                 {impactedSourceApps.length > 0 && (
                   <Badge variant="primary" size="sm">
-                    {impactedSourceApps.length} source app{impactedSourceApps.length === 1 ? "" : "s"}
+                    {impactedSourceApps.length} source app
+                    {impactedSourceApps.length === 1 ? "" : "s"}
                   </Badge>
                 )}
               </div>
               <div className="space-y-2">
                 {selectedEffectivePolicies.length > 0 ? (
                   selectedEffectivePolicies.slice(0, 5).map((policy) => (
-                    <div key={`${policy.sourceApp}-${policy.profileId}-${policy.entityKey}`} className="rounded-lg bg-bg px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-text-main">{policy.sourceName}</span>
-                      <ActionBadge action={policy.action} />
+                    <div
+                      key={`${policy.sourceApp}-${policy.profileId}-${policy.entityKey}`}
+                      className="rounded-lg bg-bg px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-text-main">{policy.sourceName}</span>
+                        <ActionBadge action={policy.action} />
+                      </div>
+                      <p className="mt-1 text-xs text-text-muted">
+                        {policy.summary} Level from {policy.levelSource}; action from{" "}
+                        {policy.actionSource}.
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-text-muted">
-                      {policy.summary} Level from {policy.levelSource}; action from{" "}
-                      {policy.actionSource}.
-                    </p>
-                  </div>
                   ))
                 ) : (
                   <div className="rounded-lg bg-bg px-3 py-2 text-sm text-text-muted">
@@ -798,7 +869,10 @@ function PolicyStudioView({
               {policyWarnings.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {policyWarnings.map((warning) => (
-                    <div key={warning} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300">
+                    <div
+                      key={warning}
+                      className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
+                    >
                       {warning}
                     </div>
                   ))}
@@ -843,7 +917,10 @@ function PolicyStudioView({
             </div>
           </div>
         ) : (
-          <EmptyBlock title="Select a rule" description="Impact preview updates as you edit the selected rule." />
+          <EmptyBlock
+            title="Select a rule"
+            description="Impact preview updates as you edit the selected rule."
+          />
         )}
       </Card>
     </div>
@@ -880,7 +957,11 @@ function TestLabView({
 }) {
   return (
     <div className="space-y-4">
-      <Card title="Test Lab" subtitle="Simulate Detect → Classify → Transform → Validate → Restore before policy release." icon="science">
+      <Card
+        title="Test Lab"
+        subtitle="Simulate Detect → Classify → Transform → Validate → Restore before policy release."
+        icon="science"
+      >
         <div className="grid gap-3 lg:grid-cols-5">
           <Field label="Input mode">
             <select
@@ -888,7 +969,10 @@ function TestLabView({
               className={inputClass()}
               value={testInput.inputMode}
               onChange={(event) =>
-                setTestInput({ ...testInput, inputMode: event.target.value as PrivacyTestInput["inputMode"] })
+                setTestInput({
+                  ...testInput,
+                  inputMode: event.target.value as PrivacyTestInput["inputMode"],
+                })
               }
             >
               <option value="plain-text">Plain text</option>
@@ -928,7 +1012,9 @@ function TestLabView({
               aria-label="Bundle"
               className={inputClass()}
               value={testInput.bundleVersion || workspace.overview.activeBundleVersion}
-              onChange={(event) => setTestInput({ ...testInput, bundleVersion: event.target.value })}
+              onChange={(event) =>
+                setTestInput({ ...testInput, bundleVersion: event.target.value })
+              }
             >
               {workspace.bundles.map((bundle) => (
                 <option key={bundle.id} value={bundle.version}>
@@ -977,7 +1063,17 @@ function TestLabView({
               {testResult.pipeline.map((step) => (
                 <div key={step.step} className="rounded-lg border border-border bg-bg/60 p-3">
                   <p className="font-semibold text-text-main">{step.step}</p>
-                  <Badge className="mt-2" variant={step.status === "blocked" ? "error" : step.status === "passed" ? "success" : "info"} size="sm">
+                  <Badge
+                    className="mt-2"
+                    variant={
+                      step.status === "blocked"
+                        ? "error"
+                        : step.status === "passed"
+                          ? "success"
+                          : "info"
+                    }
+                    size="sm"
+                  >
                     {step.status}
                   </Badge>
                   <p className="mt-2 text-xs text-text-muted">{step.detail}</p>
@@ -1001,7 +1097,10 @@ function TestLabView({
           <Card title="Detected entities" icon="find_in_page">
             <div className="space-y-2">
               {testResult.detectedEntities.map((entity, index) => (
-                <div key={`${entity.ruleId}-${entity.start}-${index}`} className="rounded-lg border border-border bg-bg/60 p-3">
+                <div
+                  key={`${entity.ruleId}-${entity.start}-${index}`}
+                  className="rounded-lg border border-border bg-bg/60 p-3"
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <LevelBadge level={entity.level} />
                     <ActionBadge action={entity.action} />
@@ -1016,7 +1115,10 @@ function TestLabView({
           <Card title="Matched rules and restore tokens" icon="vpn_key">
             <div className="space-y-3">
               {testResult.matchedRules.map((rule) => (
-                <div key={rule.id} className="flex items-center justify-between rounded-lg bg-bg px-3 py-2">
+                <div
+                  key={rule.id}
+                  className="flex items-center justify-between rounded-lg bg-bg px-3 py-2"
+                >
                   <div>
                     <p className="font-medium text-text-main">{rule.name}</p>
                     <p className="font-mono text-xs text-text-muted">{rule.id}</p>
@@ -1029,8 +1131,8 @@ function TestLabView({
                   <p className="text-sm font-semibold text-text-main">Restore token metadata</p>
                   {testResult.restoreTokens.map((token) => (
                     <div key={token.token} className="mt-2 text-xs text-text-muted">
-                      <span className="font-mono text-text-main">Token {token.token}</span>{" "}
-                      expires {formatTime(token.expiresAt)}
+                      <span className="font-mono text-text-main">Token {token.token}</span> expires{" "}
+                      {formatTime(token.expiresAt)}
                     </div>
                   ))}
                 </div>
@@ -1039,7 +1141,10 @@ function TestLabView({
           </Card>
         </div>
       ) : (
-        <EmptyBlock title="No test run yet" description="Use a blocked, allowed, masked, or tokenized example to explain every decision in the pipeline." />
+        <EmptyBlock
+          title="No test run yet"
+          description="Use a blocked, allowed, masked, or tokenized example to explain every decision in the pipeline."
+        />
       )}
     </div>
   );
@@ -1067,7 +1172,8 @@ function IncidentsView({
     const sourceMatches = !filters.sourceApp || incident.sourceApp === filters.sourceApp;
     const levelMatches = !filters.level || incident.highestLevel === filters.level;
     const actionMatches = !filters.action || incident.finalDecision === filters.action;
-    const bundleMatches = !filters.bundleVersion || incident.bundleVersion === filters.bundleVersion;
+    const bundleMatches =
+      !filters.bundleVersion || incident.bundleVersion === filters.bundleVersion;
     const statusMatches = !filters.status || incident.finalStatus === filters.status;
 
     return (
@@ -1081,7 +1187,11 @@ function IncidentsView({
   });
 
   return (
-    <Card title="Incidents" subtitle="Investigate blocked, transformed, and unsafe events." icon="policy_alert">
+    <Card
+      title="Incidents"
+      subtitle="Investigate blocked, transformed, and unsafe events."
+      icon="policy_alert"
+    >
       <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_repeat(5,150px)]">
         <input
           aria-label="Search incidents"
@@ -1111,7 +1221,9 @@ function IncidentsView({
         >
           <option value="">All levels</option>
           {LEVELS.map((level) => (
-            <option key={level} value={level}>{level}</option>
+            <option key={level} value={level}>
+              {level}
+            </option>
           ))}
         </select>
         <select
@@ -1152,7 +1264,10 @@ function IncidentsView({
       </div>
 
       {incidents.length === 0 ? (
-        <EmptyBlock title="No matching incidents" description="Change filters or run the Test Lab to inspect policy behavior." />
+        <EmptyBlock
+          title="No matching incidents"
+          description="Change filters or run the Test Lab to inspect policy behavior."
+        />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -1172,12 +1287,23 @@ function IncidentsView({
               {incidents.map((incident) => (
                 <tr key={incident.id} className="border-b border-border/70">
                   <td className="py-3 pr-4 font-mono text-text-main">{incident.id}</td>
-                  <td className="py-3 pr-4"><SourceAppBadge source={incident.sourceApp} /></td>
-                  <td className="py-3 pr-4"><LevelBadge level={incident.highestLevel} /></td>
-                  <td className="py-3 pr-4"><ActionBadge action={incident.finalDecision} /></td>
-                  <td className="py-3 pr-4 font-mono text-xs text-text-muted">{incident.bundleVersion}</td>
                   <td className="py-3 pr-4">
-                    <Badge variant={incident.finalStatus === "open" ? "warning" : "success"} size="sm">
+                    <SourceAppBadge source={incident.sourceApp} />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <LevelBadge level={incident.highestLevel} />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <ActionBadge action={incident.finalDecision} />
+                  </td>
+                  <td className="py-3 pr-4 font-mono text-xs text-text-muted">
+                    {incident.bundleVersion}
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Badge
+                      variant={incident.finalStatus === "open" ? "warning" : "success"}
+                      size="sm"
+                    >
                       {incident.finalStatus}
                     </Badge>
                   </td>
@@ -1235,7 +1361,9 @@ function IncidentDetailPanel({
         </div>
         <div className="rounded-lg bg-bg p-3">
           <p className="text-xs text-text-muted">Matched rules</p>
-          <p className="mt-1 font-mono text-sm text-text-main">{incident.matchedRuleIds.join(", ")}</p>
+          <p className="mt-1 font-mono text-sm text-text-main">
+            {incident.matchedRuleIds.join(", ")}
+          </p>
         </div>
         <div className="rounded-lg bg-bg p-3">
           <p className="text-xs text-text-muted">Provider route</p>
@@ -1246,7 +1374,10 @@ function IncidentDetailPanel({
       </div>
       <div className="mt-4 space-y-2">
         {incident.timeline.map((step) => (
-          <div key={`${incident.id}-${step.step}`} className="rounded-lg border border-border bg-bg/60 p-3">
+          <div
+            key={`${incident.id}-${step.step}`}
+            className="rounded-lg border border-border bg-bg/60 p-3"
+          >
             <p className="font-semibold text-text-main">{step.step}</p>
             <p className="text-sm text-text-muted">{step.detail}</p>
           </div>
@@ -1291,33 +1422,54 @@ function ReleasesView({
           <p className="font-mono text-lg font-semibold text-text-main">
             {active?.version || workspace.overview.activeBundleVersion}
           </p>
-          <p className="mt-2 text-sm text-text-muted">{active?.notes || "Currently active policy."}</p>
-          <p className="mt-3 text-xs text-text-muted">Published {formatTime(active?.publishedAt)}</p>
+          <p className="mt-2 text-sm text-text-muted">
+            {active?.notes || "Currently active policy."}
+          </p>
+          <p className="mt-3 text-xs text-text-muted">
+            Published {formatTime(active?.publishedAt)}
+          </p>
         </Card>
         <Card title="Draft bundle" icon="edit_document">
           <p className="font-mono text-lg font-semibold text-text-main">
             {draft?.version || workspace.overview.bundleHealth.draftVersion}
           </p>
-          <p className="mt-2 text-sm text-text-muted">{draft?.notes || "No unpublished draft changes."}</p>
+          <p className="mt-2 text-sm text-text-muted">
+            {draft?.notes || "No unpublished draft changes."}
+          </p>
           <div className="mt-3 flex gap-2">
-            <Badge variant={workspace.overview.bundleHealth.changedEntities > 0 ? "warning" : "success"}>
+            <Badge
+              variant={workspace.overview.bundleHealth.changedEntities > 0 ? "warning" : "success"}
+            >
               {workspace.overview.bundleHealth.changedEntities} entities
             </Badge>
-            <Badge variant={workspace.overview.bundleHealth.changedRules > 0 ? "warning" : "success"}>
+            <Badge
+              variant={workspace.overview.bundleHealth.changedRules > 0 ? "warning" : "success"}
+            >
               {workspace.overview.bundleHealth.changedRules} rules
             </Badge>
           </div>
         </Card>
       </div>
 
-      <Card title="Draft vs Active" subtitle="Review impact before publishing live policy." icon="difference">
+      <Card
+        title="Draft vs Active"
+        subtitle="Review impact before publishing live policy."
+        icon="difference"
+      >
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border border-border bg-bg/60 p-4">
             <p className="text-sm font-semibold text-text-main">Active</p>
             <ul className="mt-3 space-y-2 text-sm text-text-muted">
               <li>Active reference: {workspace.overview.activeBundleVersion}</li>
-              <li>{workspace.config.entityTypes.length - workspace.overview.bundleHealth.changedEntities} unchanged entity references</li>
-              <li>{workspace.config.rules.length - workspace.overview.bundleHealth.changedRules} unchanged rule references</li>
+              <li>
+                {workspace.config.entityTypes.length -
+                  workspace.overview.bundleHealth.changedEntities}{" "}
+                unchanged entity references
+              </li>
+              <li>
+                {workspace.config.rules.length - workspace.overview.bundleHealth.changedRules}{" "}
+                unchanged rule references
+              </li>
             </ul>
           </div>
           <div className="rounded-lg border border-border bg-bg/60 p-4">
@@ -1347,12 +1499,23 @@ function ReleasesView({
       <Card title="Version history" icon="history">
         <div className="space-y-2">
           {workspace.bundles.map((bundle) => (
-            <div key={bundle.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg/60 px-3 py-2">
+            <div
+              key={bundle.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg/60 px-3 py-2"
+            >
               <div>
                 <p className="font-mono text-sm text-text-main">Version {bundle.version}</p>
                 <p className="text-xs text-text-muted">{bundle.notes}</p>
               </div>
-              <Badge variant={bundle.status === "active" ? "success" : bundle.status === "draft" ? "warning" : "default"}>
+              <Badge
+                variant={
+                  bundle.status === "active"
+                    ? "success"
+                    : bundle.status === "draft"
+                      ? "warning"
+                      : "default"
+                }
+              >
                 {bundle.status}
               </Badge>
             </div>
@@ -1396,7 +1559,9 @@ function SettingsView({
               className={inputClass()}
               type="number"
               value={settings.tokenTtlSeconds}
-              onChange={(event) => setSettings({ ...settings, tokenTtlSeconds: Number(event.target.value) })}
+              onChange={(event) =>
+                setSettings({ ...settings, tokenTtlSeconds: Number(event.target.value) })
+              }
             />
           </Field>
           <label className="flex items-center justify-between gap-3 text-sm text-text-main">
@@ -1427,7 +1592,9 @@ function SettingsView({
               className={inputClass()}
               type="number"
               value={settings.keyRotationDays}
-              onChange={(event) => setSettings({ ...settings, keyRotationDays: Number(event.target.value) })}
+              onChange={(event) =>
+                setSettings({ ...settings, keyRotationDays: Number(event.target.value) })
+              }
             />
           </Field>
         </SettingsSection>
@@ -1438,7 +1605,10 @@ function SettingsView({
               className={inputClass()}
               value={settings.validatorMode}
               onChange={(event) =>
-                setSettings({ ...settings, validatorMode: event.target.value as PrivacySettings["validatorMode"] })
+                setSettings({
+                  ...settings,
+                  validatorMode: event.target.value as PrivacySettings["validatorMode"],
+                })
               }
             >
               <option value="strict">Strict</option>
@@ -1619,14 +1789,13 @@ export default function PrivacyFilterPageClient({
       return;
     }
     const entity = getEntity(workspace.config, ruleEditor.entityTypeId);
-    const sample =
-      ruleEditor.patternConfig.regex?.includes("@")
-        ? "Please review ana@example.com before provider routing."
-        : entity?.defaultTransform === "BLOCK"
-          ? "Please process 1234567890123 before the provider call."
-          : entity?.defaultTransform === "TOKENIZE"
-            ? "Please summarize OCB-PRJ-123 for the project team."
-            : `Please inspect ${entity?.name || "this value"} before sending.`;
+    const sample = ruleEditor.patternConfig.regex?.includes("@")
+      ? "Please review ana@example.com before provider routing."
+      : entity?.defaultTransform === "BLOCK"
+        ? "Please process 1234567890123 before the provider call."
+        : entity?.defaultTransform === "TOKENIZE"
+          ? "Please summarize OCB-PRJ-123 for the project team."
+          : `Please inspect ${entity?.name || "this value"} before sending.`;
 
     setTestInput((current) => ({
       ...current,
@@ -1651,7 +1820,9 @@ export default function PrivacyFilterPageClient({
       setNotice(successMessage);
       return json as PrivacyControlPlaneWorkspace;
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save Privacy Filter changes");
+      setError(
+        saveError instanceof Error ? saveError.message : "Failed to save Privacy Filter changes"
+      );
       return null;
     } finally {
       setSaving(false);
@@ -1779,7 +1950,9 @@ export default function PrivacyFilterPageClient({
       setNotice(`Rolled back to ${json.activeBundle?.version || target.version}`);
       setShowRollbackModal(false);
     } catch (rollbackError) {
-      setError(rollbackError instanceof Error ? rollbackError.message : "Failed to rollback bundle");
+      setError(
+        rollbackError instanceof Error ? rollbackError.message : "Failed to rollback bundle"
+      );
     } finally {
       setSaving(false);
     }
@@ -1933,7 +2106,9 @@ export default function PrivacyFilterPageClient({
               aria-label="Release notes"
               className={inputClass("min-h-28 p-3")}
               value={releaseNotes}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setReleaseNotes(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                setReleaseNotes(event.target.value)
+              }
               placeholder="Explain why this policy is safe to publish."
             />
           </Field>

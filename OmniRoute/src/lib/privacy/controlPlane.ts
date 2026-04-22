@@ -20,12 +20,7 @@ import {
   listPrivacyBundles,
   updatePrivacyConfig,
 } from "./store";
-import type {
-  PrivacyConfig,
-  PrivacyLevel,
-  PrivacyRule,
-  PrivacyTransformMode,
-} from "./types";
+import type { PrivacyConfig, PrivacyLevel, PrivacyRule, PrivacyTransformMode } from "./types";
 import type {
   PrivacyBundleVersionSummary,
   PrivacyControlPlanePatch,
@@ -59,7 +54,13 @@ const DEFAULT_SOURCE_APPS: PrivacySourceApp[] = [
     environment: "local",
     active: true,
   },
-  { id: "src-direct-api", key: "direct-api", name: "Direct API", environment: "local", active: true },
+  {
+    id: "src-direct-api",
+    key: "direct-api",
+    name: "Direct API",
+    environment: "local",
+    active: true,
+  },
 ];
 
 const DEFAULT_SETTINGS: PrivacySettings = {
@@ -130,7 +131,10 @@ function countChangedById<T extends { id: string }>(activeItems: T[], draftItems
   return changed;
 }
 
-function highestLevelFromCounts(decision: string, entitySummary: Record<string, unknown>): PrivacyLevel {
+function highestLevelFromCounts(
+  decision: string,
+  entitySummary: Record<string, unknown>
+): PrivacyLevel {
   if (decision === "blocked") return "L1";
   const topEntityTypes = Array.isArray(entitySummary.topEntityTypes)
     ? entitySummary.topEntityTypes
@@ -313,7 +317,9 @@ export async function getPrivacyControlPlaneWorkspace(): Promise<PrivacyControlP
   const changedEntities = countChangedById(activeConfig.entityTypes, config.entityTypes);
   const changedRules = countChangedById(activeConfig.rules, config.rules);
   const sourceApps = mergeSourceApps(Object.keys(stats.sourceApps || {}));
-  const latestIncidents = incidents.filter((incident) => incident.finalDecision !== "allow").slice(0, 5);
+  const latestIncidents = incidents
+    .filter((incident) => incident.finalDecision !== "allow")
+    .slice(0, 5);
   const bundleSummaries = buildBundleSummaries(bundles, activeBundle.version, config, activeConfig);
   const effectivePolicies = buildEffectivePolicyPreviews(config, sourceApps);
 
@@ -699,7 +705,9 @@ function summarizePipeline(input: {
   ];
 }
 
-export async function runPrivacyControlPlaneTest(input: PrivacyTestInput): Promise<PrivacyTestResult> {
+export async function runPrivacyControlPlaneTest(
+  input: PrivacyTestInput
+): Promise<PrivacyTestResult> {
   const settings = await getPrivacyControlPlaneSettings();
   const bundle = await getCompiledBundleForTest(input.bundleVersion);
   const profile =
@@ -788,7 +796,9 @@ export async function runPrivacyControlPlaneTest(input: PrivacyTestInput): Promi
     routeDecision:
       decision === "blocked"
         ? {
-            providerRoute: settings.fallbackToLocalLlm ? "fallback-local-llm" : "blocked-before-provider",
+            providerRoute: settings.fallbackToLocalLlm
+              ? "fallback-local-llm"
+              : "blocked-before-provider",
             fallback: settings.fallbackToLocalLlm,
             reason: settings.fallbackToLocalLlm
               ? "Blocking policy requires local fallback instead of an external provider."
