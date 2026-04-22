@@ -419,16 +419,14 @@ export class DefaultExecutor extends BaseExecutor {
     if (this.provider === "claudew2a" && withDefaults && typeof withDefaults === "object") {
       const psd = credentials.providerSpecificData || {};
       credentials.providerSpecificData = psd;
-      const conversationUuid =
-        typeof psd.__claudeWebConversationUuid === "string"
-          ? psd.__claudeWebConversationUuid
-          : ensureClaudeWebConversationUuid(credentials);
+      if (typeof psd.__claudeWebConversationUuid !== "string") {
+        ensureClaudeWebConversationUuid(credentials);
+      }
       resolveClaudeWebSession(credentials);
 
       return buildClaudeWebCompletionPayload({
         model: normalizeClaudeWebModel(model),
         body: withDefaults as Record<string, unknown>,
-        conversationUuid,
         timezone: typeof psd.timezone === "string" ? psd.timezone : null,
         locale: typeof psd.locale === "string" ? psd.locale : null,
         temporary: psd.temporaryConversations === true,

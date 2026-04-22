@@ -95,7 +95,6 @@ test("buildClaudeWebCompletionPayload compiles chat messages into Claude web com
         { role: "user", content: "topic mới" },
       ],
     },
-    conversationUuid: "de8c7dc4-7b25-4ffd-9830-36cea8cff187",
     timezone: "Asia/Saigon",
     locale: "en-US",
   });
@@ -109,6 +108,7 @@ test("buildClaudeWebCompletionPayload compiles chat messages into Claude web com
   assert.equal(payload.create_conversation_params.model, "claude-sonnet-4-6");
   assert.equal(payload.create_conversation_params.include_conversation_preferences, true);
   assert.equal(payload.create_conversation_params.is_temporary, false);
+  assert.equal(payload.conversation_uuid, undefined);
   assert.match(payload.turn_message_uuids.human_message_uuid, /^[0-9a-f-]{36}$/);
   assert.match(payload.turn_message_uuids.assistant_message_uuid, /^[0-9a-f-]{36}$/);
 });
@@ -155,6 +155,7 @@ test("DefaultExecutor sends claudew2a requests to organization conversation comp
   assert.equal(body.model, "claude-sonnet-4-6");
   assert.equal(body.prompt, "hello");
   assert.equal(body.create_conversation_params.model, "claude-sonnet-4-6");
+  assert.equal(body.conversation_uuid, undefined);
 });
 
 test("validateProviderApiKey validates claudew2a via Claude organization environment endpoint", async () => {
@@ -190,6 +191,56 @@ test("validateProviderApiKey validates claudew2a via Claude organization environ
     assert.equal(capturedHeaders["Accept-Language"], "en-US,en;q=0.9");
     assert.equal(capturedHeaders["sec-ch-ua"], "\"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"");
     assert.equal(capturedHeaders["sec-fetch-site"], "same-origin");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("validateProviderApiKey falls back to current_user_access when the environments endpoint is cloudflare-blocked", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({
+      url: String(url),
+      headers: init?.headers || {},
+    });
+
+    if (String(url).includes("/v1/environment_providers/private/organizations/")) {
+      return new Response("<html>cloudflare challenge</html>", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    }
+
+    return new Response(JSON.stringify({ has_access: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const result = await validateProviderApiKey({
+      provider: "claudew2a",
+      apiKey: CAPTURED_HEADERS,
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(calls.length, 2);
+    assert.match(
+      calls[0].url,
+      /https:\/\/claude\.ai\/v1\/environment_providers\/private\/organizations\/b9c40d67-408a-453a-827b-b3dbec951661\/environments$/
+    );
+    assert.match(
+      calls[1].url,
+      /https:\/\/claude\.ai\/api\/bootstrap\/b9c40d67-408a-453a-827b-b3dbec951661\/current_user_access$/
+    );
+    assert.ok(String(calls[1].headers.Cookie).includes("sessionKey=sk-ant-sid02-test"));
+    assert.equal(
+      calls[1].headers["anthropic-anonymous-id"],
+      "claudeai.v1.test-anonymous"
+    );
+    assert.equal(calls[1].headers["Accept-Language"], "en-US,en;q=0.9");
   } finally {
     globalThis.fetch = originalFetch;
   }

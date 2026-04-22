@@ -497,13 +497,15 @@ export function buildChatgptSessionProviderData(
     lastValidatedAt: update.validatedAt || toNullableString(current.lastValidatedAt),
     lastRefreshAt: update.refreshedAt || toNullableString(current.lastRefreshAt),
     lastSessionError: update.error || null,
-    cookieString: update.cookieString || toNullableString(current.cookieString),
-    cookieNames:
-      Array.isArray(update.cookieNames) && update.cookieNames.length > 0
-        ? update.cookieNames
-        : Array.isArray(current.cookieNames)
-          ? current.cookieNames
-          : [],
+    cookieString:
+      update.cookieString !== undefined
+        ? update.cookieString
+        : toNullableString(current.cookieString),
+    cookieNames: Array.isArray(update.cookieNames)
+      ? update.cookieNames
+      : Array.isArray(current.cookieNames)
+        ? current.cookieNames
+        : [],
     sessionUserId: session?.id || toNullableString(current.sessionUserId),
     sessionEmail: session?.email || toNullableString(current.sessionEmail),
     sessionName: session?.name || toNullableString(current.sessionName),
@@ -512,6 +514,35 @@ export function buildChatgptSessionProviderData(
     workspacePlanType:
       update.planType || toNullableString((current as Record<string, unknown>).workspacePlanType),
   };
+}
+
+export function canFallbackToChatgptAccessToken(
+  validation:
+    | Pick<Extract<ChatgptSessionValidationResult, { valid: false }>, "errorCode" | "statusCode">
+    | null
+    | undefined,
+  accessToken: unknown
+): boolean {
+  const normalizedAccessToken = typeof accessToken === "string" ? accessToken.trim() : "";
+  if (!normalizedAccessToken) return false;
+
+  const recoverableErrorCodes = new Set([
+    "session_missing_user",
+    "missing_access_token",
+    "cookie_header_too_large",
+    "session_expired",
+    "session_forbidden",
+  ]);
+
+  if (validation?.errorCode && recoverableErrorCodes.has(validation.errorCode)) {
+    return true;
+  }
+
+  return (
+    validation?.statusCode === 401 ||
+    validation?.statusCode === 403 ||
+    validation?.statusCode === 431
+  );
 }
 
 export async function validateChatgptSessionPayload(
@@ -649,12 +680,10 @@ export async function validateChatgptImportedSessionPayload(
       };
     }
 
-    const canFallbackToAccessToken =
-      accessToken.length > 0 &&
-      (cookieValidation.errorCode === "session_missing_user" ||
-        cookieValidation.errorCode === "missing_access_token" ||
-        cookieValidation.errorCode === "cookie_header_too_large" ||
-        cookieValidation.statusCode === 431);
+    const canFallbackToAccessToken = canFallbackToChatgptAccessToken(
+      cookieValidation,
+      accessToken
+    );
 
     if (!canFallbackToAccessToken) {
       return cookieValidation;

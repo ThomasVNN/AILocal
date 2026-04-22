@@ -9,6 +9,7 @@ import { translateRequest } from "../../open-sse/translator/index.ts";
 import { GithubExecutor } from "../../open-sse/executors/github.ts";
 import { DefaultExecutor } from "../../open-sse/executors/default.ts";
 import { CodexExecutor } from "../../open-sse/executors/codex.ts";
+import { GeminiWebExecutor } from "../../open-sse/executors/gemini-web.ts";
 import { translateNonStreamingResponse } from "../../open-sse/handlers/responseTranslator.ts";
 import { extractUsageFromResponse } from "../../open-sse/handlers/usageExtractor.ts";
 import {
@@ -108,26 +109,9 @@ test("DefaultExecutor keeps official Gemini on x-goog-api-key auth", () => {
   assert.equal(headers.Authorization, undefined);
 });
 
-test("DefaultExecutor keeps Gemini Web2API on Authorization/cookie auth", () => {
-  const executor = new DefaultExecutor("gemini-web2api");
-  const headers = executor.buildHeaders(
-    {
-      accessToken: "SAPISIDHASH 123_deadbeef",
-      providerSpecificData: {
-        authMethod: "web2api",
-        authorizationHeader: "SAPISIDHASH 123_deadbeef",
-        requestHeaders: {
-          Cookie: "SAPISID=CookieValue123",
-          Origin: "https://gemini.google.com",
-        },
-      },
-    },
-    true
-  );
-
-  assert.equal(headers["x-goog-api-key"], undefined);
-  assert.match(headers.Authorization || "", /^SAPISIDHASH \d+_[0-9a-f]{40}$/i);
-  assert.equal(headers.Cookie, "SAPISID=CookieValue123");
+test("GeminiWebExecutor is registered as a specialized OpenAI-compatible web executor", () => {
+  const executor = new GeminiWebExecutor();
+  assert.equal(executor.getProvider(), "gemini-web2api");
 });
 
 test("DefaultExecutor execute honors connection-level custom User-Agent", async () => {

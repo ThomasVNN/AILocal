@@ -1,6 +1,7 @@
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
 import { validatePerplexitySessionCookie } from "@omniroute/open-sse/utils/perplexitySession.ts";
 import {
+  canFallbackToChatgptAccessToken,
   validateChatgptAccessToken,
   validateChatgptSessionCookie,
   validateChatgptImportedSessionPayload,
@@ -860,11 +861,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
                   if (cookieResult.valid || !bearerTokenCandidate) {
                     return cookieResult;
                   }
-                  if (
-                    cookieResult.errorCode !== "session_missing_user" &&
-                    cookieResult.errorCode !== "missing_access_token" &&
-                    cookieResult.errorCode !== "cookie_header_too_large"
-                  ) {
+                  if (!canFallbackToChatgptAccessToken(cookieResult, bearerTokenCandidate)) {
                     return cookieResult;
                   }
                   return validateChatgptAccessToken(bearerTokenCandidate, {
@@ -945,6 +942,22 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
               (looksLikeAuthorizationHeader ? apiKeyText : null) ||
               null,
             requestHeaders: providerSpecificData?.requestHeaders || undefined,
+            routePrefix:
+              typeof providerSpecificData?.routePrefix === "string"
+                ? providerSpecificData.routePrefix
+                : undefined,
+            authUser:
+              typeof providerSpecificData?.authUser === "number"
+                ? providerSpecificData.authUser
+                : undefined,
+            modelHeaderTemplate:
+              typeof providerSpecificData?.modelHeaderTemplate === "string"
+                ? providerSpecificData.modelHeaderTemplate
+                : undefined,
+            url:
+              typeof providerSpecificData?.routePrefix === "string"
+                ? `https://gemini.google.com${providerSpecificData.routePrefix}/app`
+                : undefined,
           };
 
       const result = await validateGeminiWebSession(rawInput, {
@@ -969,6 +982,11 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
         apiKey: result.apiKey,
         authorizationHeader: result.authorizationHeader,
         requestHeaders: result.requestHeaders,
+        routePrefix: result.routePrefix,
+        authUser: result.authUser,
+        modelHeaderTemplate: result.modelHeaderTemplate,
+        streamQueryParams: result.streamQueryParams,
+        streamRequestTemplate: result.streamRequestTemplate,
         models: result.models,
       };
     },

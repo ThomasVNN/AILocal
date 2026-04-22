@@ -1161,15 +1161,11 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   "gemini-web2api": {
     id: "gemini-web2api",
     alias: "gemini-w2a",
-    format: "gemini",
-    executor: "default",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
-    urlBuilder: (base, model, stream) => {
-      const action = stream ? "streamGenerateContent?alt=sse" : "generateContent";
-      return `${base}/${model}:${action}`;
-    },
+    format: "openai",
+    executor: "gemini-web2api",
+    baseUrl: "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
     authType: "oauth",
-    authHeader: "x-goog-api-key",
+    authHeader: "cookie",
     defaultContextLength: 1000000,
     headers: {
       "User-Agent":

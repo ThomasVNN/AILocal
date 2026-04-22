@@ -155,6 +155,44 @@ test("validateChatgptImportedSessionPayload falls back to bearer-only mode when 
   assert.equal(calls, 2);
 });
 
+test("validateChatgptImportedSessionPayload falls back to bearer-only mode when session cookie is forbidden", async () => {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+
+    return new Response(JSON.stringify({ limit: 42 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const payload = {
+    user: { id: "user_forbidden", email: "forbidden@example.com", name: "Forbidden User" },
+    accessToken: "header.payload.signature",
+    sessionToken: "session-token-forbidden",
+    account: { id: "acct_forbidden", planType: "plus" },
+  };
+
+  const result = await validateChatgptImportedSessionPayload(payload, {
+    allowBareSessionToken: true,
+    fetchImpl,
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.cookieString, "");
+  assert.deepEqual(result.cookieNames, []);
+  assert.equal(result.session.email, "forbidden@example.com");
+  assert.equal(result.accountId, "acct_forbidden");
+  assert.equal(result.planType, "plus");
+  assert.equal(calls, 2);
+});
+
 test("validateChatgptAccessToken does not reject non-JWT token format before upstream check", async () => {
   const fetchImpl = async () =>
     new Response(JSON.stringify({ ok: true }), {

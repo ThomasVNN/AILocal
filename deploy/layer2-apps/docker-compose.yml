@@ -49,6 +49,7 @@ services:
       REQUIRE_API_KEY: ${REQUIRE_API_KEY:-false}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       NODE_EXTRA_CA_CERTS: /app/extra-ca/extra-ca.pem
+      ENABLE_TLS_FINGERPRINT: ${ENABLE_TLS_FINGERPRINT:-true}
     volumes:
       - ${LA_DATA_ROOT:-/data/localagent}/apps/omniroute/data:/app/data
       - ${LA_DATA_ROOT:-/data/localagent}/apps/omniroute/logs:/app/logs

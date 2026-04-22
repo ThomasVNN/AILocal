@@ -9,6 +9,7 @@ import {
 } from "../utils/perplexitySession.ts";
 import {
   buildChatgptSessionProviderData,
+  canFallbackToChatgptAccessToken,
   validateChatgptAccessToken,
   validateChatgptSessionCookie,
 } from "../utils/chatgptSession.ts";
@@ -805,6 +806,7 @@ export async function refreshChatgptWebSession(
   log
 ) {
   const hasCookie = typeof cookieString === "string" && cookieString.trim().length > 0;
+  let fellBackToBearerOnly = false;
 
   if (hasCookie) {
     const validation = await validateChatgptSessionCookie(cookieString, {
@@ -832,13 +834,10 @@ export async function refreshChatgptWebSession(
       };
     }
 
-    const canFallbackToAccessToken =
-      (validation.errorCode === "session_missing_user" ||
-        validation.errorCode === "missing_access_token" ||
-        validation.errorCode === "cookie_header_too_large" ||
-        validation.statusCode === 431) &&
-      typeof currentAccessToken === "string" &&
-      currentAccessToken.trim().length > 0;
+    const canFallbackToAccessToken = canFallbackToChatgptAccessToken(
+      validation,
+      currentAccessToken
+    );
 
     if (!canFallbackToAccessToken) {
       log?.warn?.(
@@ -847,6 +846,8 @@ export async function refreshChatgptWebSession(
       );
       return null;
     }
+
+    fellBackToBearerOnly = true;
   } else if (!currentAccessToken || typeof currentAccessToken !== "string") {
     log?.warn?.("TOKEN_REFRESH", "No refresh credential available for ChatGPT Web2API refresh");
     return null;
@@ -865,13 +866,13 @@ export async function refreshChatgptWebSession(
   log?.info?.("TOKEN_REFRESH", "ChatGPT Web2API access token validated");
   return {
     accessToken: accessValidation.accessToken,
-    refreshToken: hasCookie ? cookieString : undefined,
+    refreshToken: hasCookie && !fellBackToBearerOnly ? cookieString : undefined,
     expiresIn: accessValidation.expiresIn,
     providerSpecificData: buildChatgptSessionProviderData(providerSpecificData || null, {
       sessionStatus: "active",
       session: accessValidation.session,
-      cookieNames: hasCookie ? [] : undefined,
-      cookieString: hasCookie ? cookieString : null,
+      cookieNames: fellBackToBearerOnly ? [] : hasCookie ? undefined : [],
+      cookieString: fellBackToBearerOnly ? "" : hasCookie ? cookieString : "",
       accountId: accessValidation.accountId || providerSpecificData?.workspaceId || null,
       planType: accessValidation.planType || providerSpecificData?.workspacePlanType || null,
       validatedAt: now,

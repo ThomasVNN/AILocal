@@ -202,6 +202,72 @@ test("ChatGPT import route rejects session payloads that fail upstream validatio
   }
 });
 
+test("ChatGPT import route accepts session payloads when cookie replay is forbidden but bearer token is still valid", async () => {
+  await resetStorage();
+
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls += 1;
+    if (String(url).includes("/api/auth/session")) {
+      return new Response("forbidden", {
+        status: 403,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+
+    return new Response(JSON.stringify({ limit: 42 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const request = new Request("http://localhost/api/oauth/chatgpt-web2api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionPayload: {
+          user: {
+            id: "user_forbidden",
+            email: "forbidden@example.com",
+            name: "Forbidden User",
+          },
+          accessToken: "chatgpt-access-token-forbidden-cookie",
+          sessionToken: "session-token-forbidden",
+          account: {
+            id: "acc_forbidden",
+            planType: "plus",
+          },
+        },
+      }),
+    });
+
+    const response = await importRoute.POST(request);
+    assert.equal(response.status, 200);
+
+    const payload = await response.json();
+    assert.equal(payload.success, true);
+
+    const connections = await providersDb.getProviderConnections({ provider: "chatgpt-web2api" });
+    assert.equal(connections.length, 1);
+
+    const stored = connections[0];
+    assert.equal(stored.email, "forbidden@example.com");
+    assert.equal(stored.displayName, "Forbidden User");
+    assert.equal(stored.accessToken, "chatgpt-access-token-forbidden-cookie");
+    assert.equal(stored.refreshToken, "");
+    assert.equal(stored.providerSpecificData.cookieString, "");
+    assert.deepEqual(stored.providerSpecificData.cookieNames, []);
+    assert.equal(stored.providerSpecificData.sessionStatus, "active");
+    assert.equal(stored.providerSpecificData.workspaceId, "acc_forbidden");
+    assert.equal(stored.providerSpecificData.workspacePlanType, "plus");
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("ChatGPT import route rejects malformed cookie payloads before persistence", async () => {
   await resetStorage();
 

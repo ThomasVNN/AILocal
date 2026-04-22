@@ -2,6 +2,17 @@ import { randomUUID } from "crypto";
 
 export const CLAUDE_WEB_BASE_URL = "https://claude.ai";
 export const CLAUDE_WEB_DEFAULT_MODEL = "claude-sonnet-4-6";
+const CLAUDE_WEB_VALIDATION_ENDPOINTS = [
+  {
+    path: (organizationUuid: string) =>
+      `/v1/environment_providers/private/organizations/${organizationUuid}/environments`,
+    accept: "application/json",
+  },
+  {
+    path: (organizationUuid: string) => `/api/bootstrap/${organizationUuid}/current_user_access`,
+    accept: "*/*",
+  },
+] as const;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -551,14 +562,12 @@ export function buildClaudeWebPrompt(body: JsonRecord): string {
 export function buildClaudeWebCompletionPayload({
   model,
   body,
-  conversationUuid,
   timezone,
   locale,
   temporary,
 }: {
   model: unknown;
   body: JsonRecord;
-  conversationUuid?: string | null;
   timezone?: string | null;
   locale?: string | null;
   temporary?: boolean | null;
@@ -611,7 +620,6 @@ export function buildClaudeWebCompletionPayload({
       is_temporary: temporary === true,
       enabled_imagine: true,
     },
-    ...(conversationUuid ? { conversation_uuid: conversationUuid } : {}),
   };
 }
 
@@ -699,39 +707,75 @@ export async function validateClaudeWebSession(
   }
 
   const fetchImpl = options.fetchImpl || fetch;
-  const url = `${CLAUDE_WEB_BASE_URL}/v1/environment_providers/private/organizations/${normalized.organizationUuid}/environments`;
-  const headers = buildClaudeWebRequestHeaders({
-    cookieString: normalized.cookieString,
-    organizationUuid: normalized.organizationUuid,
-    requestHeaders: normalized.requestHeaders,
-    accept: "application/json",
-  });
+  let primaryFailure:
+    | {
+        statusCode: number | null;
+        errorCode: string;
+        error: string;
+        cookieNames: string[];
+      }
+    | null = null;
 
   try {
-    const response = await fetchImpl(url, {
-      method: "GET",
-      headers,
-      signal: options.signal,
-    });
-
-    if (response.ok) {
-      return {
-        valid: true,
-        statusCode: response.status,
+    for (const [index, endpoint] of CLAUDE_WEB_VALIDATION_ENDPOINTS.entries()) {
+      const headers = buildClaudeWebRequestHeaders({
         cookieString: normalized.cookieString,
-        cookieNames: normalized.cookieNames,
         organizationUuid: normalized.organizationUuid,
         requestHeaders: normalized.requestHeaders,
+        accept: endpoint.accept,
+      });
+      const response = await fetchImpl(
+        `${CLAUDE_WEB_BASE_URL}${endpoint.path(normalized.organizationUuid)}`,
+        {
+          method: "GET",
+          headers,
+          signal: options.signal,
+        }
+      );
+
+      if (response.ok) {
+        return {
+          valid: true,
+          statusCode: response.status,
+          cookieString: normalized.cookieString,
+          cookieNames: normalized.cookieNames,
+          organizationUuid: normalized.organizationUuid,
+          requestHeaders: normalized.requestHeaders,
+        };
+      }
+
+      const responseBody = await response.text().catch(() => "");
+      const error = buildClaudeWebSessionError(response.status, responseBody);
+      const failure = {
+        statusCode: response.status,
+        cookieNames: normalized.cookieNames,
+        ...error,
+      };
+
+      if (index === 0) {
+        primaryFailure = failure;
+        continue;
+      }
+
+      const preferFallbackFailure =
+        failure.errorCode !== "session_invalid" && failure.errorCode !== "network_error";
+      const chosenFailure =
+        preferFallbackFailure && failure.statusCode !== null ? failure : (primaryFailure || failure);
+
+      return {
+        valid: false,
+        ...chosenFailure,
       };
     }
 
-    const responseBody = await response.text().catch(() => "");
-    const error = buildClaudeWebSessionError(response.status, responseBody);
     return {
       valid: false,
-      statusCode: response.status,
-      cookieNames: normalized.cookieNames,
-      ...error,
+      ...(primaryFailure || {
+        statusCode: null,
+        errorCode: "session_invalid",
+        error: "Claude Web session validation failed",
+        cookieNames: normalized.cookieNames,
+      }),
     };
   } catch (error) {
     return {
