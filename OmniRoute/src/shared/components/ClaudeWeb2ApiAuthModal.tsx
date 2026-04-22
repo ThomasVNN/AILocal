@@ -18,9 +18,7 @@ function parseDetectedHeaderNames(rawValue: string) {
       names.add(inline[1].replace(/^:/, "").toLowerCase());
       continue;
     }
-    const curlHeader = /(?:-H|--header)\s+\$?(?:"([^":]+):[\s\S]*"|'([^':]+):[\s\S]*')/.exec(
-      line
-    );
+    const curlHeader = /(?:-H|--header)\s+\$?(?:"([^":]+):[\s\S]*"|'([^':]+):[\s\S]*')/.exec(line);
     if (curlHeader?.[1] || curlHeader?.[2]) {
       names.add(String(curlHeader[1] || curlHeader[2]).toLowerCase());
       continue;
@@ -151,14 +149,15 @@ export default function ClaudeWeb2ApiAuthModal({ isOpen, onSuccess, onClose }) {
           )}
           {!hasCookieHeader && sessionInput.trim().length > 0 && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              Could not detect <code>Cookie</code> or <code>sessionKey</code>. Paste a full
-              request capture from <code>claude.ai</code>.
+              Could not detect <code>Cookie</code> or <code>sessionKey</code>. Paste a full request
+              capture from <code>claude.ai</code>.
             </p>
           )}
           {hasCookieHeader && !hasOrganization && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              Cookie detected, but no organization UUID was found. Include <code>lastActiveOrg</code>{" "}
-              or a URL containing <code>/organizations/&lt;uuid&gt;</code>.
+              Cookie detected, but no organization UUID was found. Include{" "}
+              <code>lastActiveOrg</code> or a URL containing{" "}
+              <code>/organizations/&lt;uuid&gt;</code>.
             </p>
           )}
         </div>

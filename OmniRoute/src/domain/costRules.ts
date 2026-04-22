@@ -65,6 +65,27 @@ const budgets = new Map<string, BudgetConfig>();
 /** @type {boolean} */
 let _budgetsLoaded = false;
 
+export function syncAllBudgetSchedules(_now = Date.now()) {
+  if (!_budgetsLoaded) {
+    _budgetsLoaded = true;
+    try {
+      const all = loadAllBudgets() as Record<string, BudgetConfig>;
+      if (all && typeof all === "object") {
+        for (const [id, budget] of Object.entries(all)) {
+          budgets.set(id, budget);
+        }
+      }
+    } catch {
+      // ignore bootstrap issues; job stays best-effort
+    }
+  }
+
+  return {
+    processed: budgets.size,
+    resetCount: 0,
+  };
+}
+
 /**
  * Set budget for an API key.
  *

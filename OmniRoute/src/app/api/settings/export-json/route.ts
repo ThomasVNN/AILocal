@@ -41,8 +41,8 @@ export async function GET(request: Request) {
       // Metadata to identify export version
       _meta: {
         exportedAt: new Date().toISOString(),
-        version: "omniroute-v3-legacy-export"
-      }
+        version: "omniroute-v3-legacy-export",
+      },
     };
 
     return new NextResponse(JSON.stringify(exportData, null, 2), {

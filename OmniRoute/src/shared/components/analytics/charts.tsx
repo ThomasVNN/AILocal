@@ -267,10 +267,7 @@ export function ActivityHeatmap({ activityMap }) {
         </span>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="overflow-x-auto"
-      >
+      <div ref={scrollRef} className="overflow-x-auto">
         <div className="w-max">
           <div className="flex gap-[3px] mb-1 ml-6" style={{ fontSize: "10px" }}>
             {monthLabels.map((m, i) => (
@@ -300,18 +297,18 @@ export function ActivityHeatmap({ activityMap }) {
             </div>
 
             {weeks.map((week, wi) => (
-            <div key={wi} className="flex flex-col gap-[3px]">
-              {week.map((day, di) => (
-                <div
-                  key={di}
-                  title={day ? `${day.date}: ${fmtFull(day.value)} tokens` : ""}
-                  className={`w-[10px] h-[10px] rounded-[2px] ${day ? getCellColor(day.value) : "bg-transparent"}`}
-                />
-              ))}
-            </div>
-          ))}
+              <div key={wi} className="flex flex-col gap-[3px]">
+                {week.map((day, di) => (
+                  <div
+                    key={di}
+                    title={day ? `${day.date}: ${fmtFull(day.value)} tokens` : ""}
+                    className={`w-[10px] h-[10px] rounded-[2px] ${day ? getCellColor(day.value) : "bg-transparent"}`}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
       </div>
 
       <div className="flex items-center gap-1 mt-2 ml-6 text-[10px] text-text-muted">

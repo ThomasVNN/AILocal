@@ -175,7 +175,7 @@ export async function getUnifiedModelsResponse(
     let settings: Record<string, any> = {};
     try {
       settings = await getSettings();
-    } catch { }
+    } catch {}
     if (settings.requireAuthForModels === true) {
       if (!(await isAuthenticated(request))) {
         return Response.json(
@@ -291,9 +291,14 @@ export async function getUnifiedModelsResponse(
     // Collect models from active providers (or all if none active)
     const models = [];
     const timestamp = Math.floor(Date.now() / 1000);
-    const dynamicProviderModels = new Map<string, Array<{
-      contextLength: number; id: string; name: string
-    }>>();
+    const dynamicProviderModels = new Map<
+      string,
+      Array<{
+        contextLength: number;
+        id: string;
+        name: string;
+      }>
+    >();
 
     // Add combos first (they appear at the top) — only active ones
     for (const combo of combos) {
@@ -587,9 +592,9 @@ export async function getUnifiedModelsResponse(
         if (providerId === "gemini") continue;
         const providerCustomModels = Array.isArray(rawProviderCustomModels)
           ? rawProviderCustomModels.filter(
-            (model): model is Record<string, unknown> =>
-              !!model && typeof model === "object" && !Array.isArray(model)
-          )
+              (model): model is Record<string, unknown> =>
+                !!model && typeof model === "object" && !Array.isArray(model)
+            )
           : [];
         // For compatible providers, use the prefix from provider nodes
         const prefix = providerIdToPrefix[providerId];
@@ -667,7 +672,7 @@ export async function getUnifiedModelsResponse(
             const providerVisionFields =
               modelType === "chat"
                 ? getVisionCapabilityFields(providerPrefixedId) ||
-                getVisionCapabilityFields(modelId)
+                  getVisionCapabilityFields(modelId)
                 : null;
             models.push({
               id: providerPrefixedId,

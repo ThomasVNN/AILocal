@@ -398,3 +398,28 @@ export function isCacheable(body, headers) {
 
   return true;
 }
+
+/**
+ * Check if a cached response can be served for this request.
+ * Works for both streaming and non-streaming requests (cache hit returns JSON).
+ * Omitted temperature defaults to 0 for read.
+ */
+export function isCacheableForRead(body, headers) {
+  if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
+    return false;
+  }
+  if ((body?.temperature ?? 0) !== 0) return false;
+  return true;
+}
+
+/**
+ * Check if a response should be stored in cache after completion.
+ * Requires explicit `temperature: 0`.
+ */
+export function isCacheableForWrite(body, headers) {
+  if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
+    return false;
+  }
+  if (body?.temperature !== 0) return false;
+  return true;
+}

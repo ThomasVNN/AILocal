@@ -61,8 +61,14 @@ test("v1 models exposes Web2API providers under provider-id prefixes only", asyn
   assert.ok(ids.has("perplexity-web2api/gpt-4o"));
   assert.ok(ids.has("claudew2a/claude-sonnet-4-6"));
   assert.ok(ids.has("claudew2a/claude-opus-4-6"));
-  assert.equal([...ids].some((id) => id.startsWith("pplx-w2a/")), false);
-  assert.equal([...ids].some((id) => id.startsWith("claude-w2a/")), false);
+  assert.equal(
+    [...ids].some((id) => id.startsWith("pplx-w2a/")),
+    false
+  );
+  assert.equal(
+    [...ids].some((id) => id.startsWith("claude-w2a/")),
+    false
+  );
 
   const web2apiModels = body.data.filter((item) =>
     ["perplexity-web2api", "claudew2a"].includes(item.owned_by)

@@ -32,14 +32,14 @@ export type PluginActivationConfigSource = {
 
 export type NormalizedPluginsConfig = SharedNormalizedPluginsConfig;
 
-let bundledPluginAliasLookupCache: ReadonlyMap<string, string> | undefined;
+const CORE_BUNDLED_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
+  "google-gemini-cli": "google",
+  "minimax-portal-auth": "minimax",
+  "openai-codex": "openai",
+};
 
 function getBundledPluginAliasLookup(): ReadonlyMap<string, string> {
-  if (bundledPluginAliasLookupCache) {
-    return bundledPluginAliasLookupCache;
-  }
-
-  const lookup = new Map<string, string>();
+  const lookup = new Map<string, string>(Object.entries(CORE_BUNDLED_PLUGIN_ALIASES));
   for (const plugin of loadPluginManifestRegistry({ cache: true }).plugins) {
     if (plugin.origin !== "bundled") {
       continue;
@@ -61,7 +61,6 @@ function getBundledPluginAliasLookup(): ReadonlyMap<string, string> {
       }
     }
   }
-  bundledPluginAliasLookupCache = lookup;
   return lookup;
 }
 

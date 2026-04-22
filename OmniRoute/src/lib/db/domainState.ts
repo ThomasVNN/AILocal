@@ -175,6 +175,24 @@ export function saveCostEntry(apiKeyId, cost, timestamp = Date.now()) {
   );
 }
 
+export function batchSaveCostEntries(
+  entries: Array<{ apiKeyId: string; cost: number; timestamp: number }>
+) {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+
+  const db = getDbInstance();
+  const stmt = db.prepare(
+    "INSERT INTO domain_cost_history (api_key_id, cost, timestamp) VALUES (?, ?, ?)"
+  );
+  const tx = db.transaction((rows: Array<{ apiKeyId: string; cost: number; timestamp: number }>) => {
+    for (const entry of rows) {
+      stmt.run(entry.apiKeyId, entry.cost, entry.timestamp);
+    }
+  });
+
+  tx(entries);
+}
+
 /**
  * Load cost entries for an API key within a time window.
  * @param {string} apiKeyId

@@ -61,6 +61,7 @@ const eslintConfig = [
       "app/bin/**",
       "app.__qa_backup/**",
       "app/app.__qa_backup/**",
+      ".app-build-backup-*/**",
       // CLI package copy directory
       "clipr/**",
     ],

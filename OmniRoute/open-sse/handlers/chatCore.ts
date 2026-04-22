@@ -367,6 +367,7 @@ function parseNonStreamingSSEPayload(
 
   queueFormat(preferredFormat);
   queueFormat(FORMATS.OPENAI_RESPONSES);
+  queueFormat(FORMATS.PERPLEXITY_WEB2API);
   queueFormat(FORMATS.CLAUDE);
   queueFormat(FORMATS.PERPLEXITY_WEB2API);
   queueFormat(FORMATS.OPENAI);

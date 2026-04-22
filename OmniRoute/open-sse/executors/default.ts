@@ -8,19 +8,19 @@ import {
   CLAUDE_CODE_COMPATIBLE_DEFAULT_CHAT_PATH,
   joinClaudeCodeCompatibleUrl,
 } from "../services/claudeCodeCompatible.ts";
+import { normalizePerplexityWeb2ApiModel } from "../translator/helpers/perplexityWeb2ApiHelper.ts";
+import { compactChatgptCookieString } from "../utils/chatgptSession.ts";
+import { buildGeminiAuthorizationFromCookieHeader } from "../utils/geminiWebSession.ts";
 import { getGigachatAccessToken } from "../services/gigachatAuth.ts";
 import { applyProviderRequestDefaults } from "../services/providerRequestDefaults.ts";
 import { getOpenAICompatibleType, isClaudeCodeCompatible } from "../services/provider.ts";
 import { sanitizeQwenThinkingToolChoice } from "../services/qwenThinking.ts";
-import { normalizePerplexityWeb2ApiModel } from "../translator/helpers/perplexityWeb2ApiHelper.ts";
-import { compactChatgptCookieString } from "../utils/chatgptSession.ts";
 import {
   buildClaudeWebCompletionPayload,
   buildClaudeWebRequestHeaders,
   normalizeClaudeWebModel,
   normalizeClaudeWebSessionInput,
 } from "../utils/claudeWebSession.ts";
-import { buildGeminiAuthorizationFromCookieHeader } from "../utils/geminiWebSession.ts";
 
 function normalizeBaseUrl(baseUrl) {
   return (baseUrl || "").trim().replace(/\/$/, "");
@@ -94,7 +94,7 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  buildUrl(model: string, stream: boolean, urlIndex = 0, credentials: ProviderCredentials | null = null): string {
+  buildUrl(model, stream, urlIndex = 0, credentials = null) {
     void model;
     void stream;
     void urlIndex;
@@ -199,6 +199,7 @@ export class DefaultExecutor extends BaseExecutor {
         }
         break;
       }
+      // Gemini Web2API (local feature)
       case "gemini-web2api": {
         const providerHeaders =
           credentials.providerSpecificData &&
@@ -249,7 +250,7 @@ export class DefaultExecutor extends BaseExecutor {
         ) {
           headers["Authorization"] = accessTokenAuthorization;
         }
-        break;
+      break;
       }
       case "snowflake": {
         const rawToken = effectiveKey || credentials.accessToken || "";
@@ -261,6 +262,7 @@ export class DefaultExecutor extends BaseExecutor {
           : "KEYPAIR_JWT";
         break;
       }
+      // GigaChat (upstream feature)
       case "gigachat":
         headers["Authorization"] = `Bearer ${credentials.accessToken || effectiveKey}`;
         break;
@@ -436,6 +438,7 @@ export class DefaultExecutor extends BaseExecutor {
     if (this.provider === "qwen" && withDefaults && typeof withDefaults === "object") {
       return sanitizeQwenThinkingToolChoice(withDefaults, "QwenExecutor");
     }
+
     return withDefaults;
   }
 

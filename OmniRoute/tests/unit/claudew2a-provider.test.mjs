@@ -6,11 +6,8 @@ const { OAUTH_PROVIDERS, APIKEY_PROVIDERS } =
 const { REGISTRY } = await import("../../open-sse/config/providerRegistry.ts");
 const { DefaultExecutor } = await import("../../open-sse/executors/default.ts");
 const { validateProviderApiKey } = await import("../../src/lib/providers/validation.ts");
-const {
-  buildClaudeWebCompletionPayload,
-  normalizeClaudeWebModel,
-  normalizeClaudeWebSessionInput,
-} = await import("../../open-sse/utils/claudeWebSession.ts");
+const { buildClaudeWebCompletionPayload, normalizeClaudeWebModel, normalizeClaudeWebSessionInput } =
+  await import("../../open-sse/utils/claudeWebSession.ts");
 
 const CAPTURED_HEADERS = `
 :method: POST
@@ -63,7 +60,10 @@ test("normalizeClaudeWebSessionInput accepts captured Claude request headers", (
   assert.ok(normalized.cookieString.includes("sessionKey=sk-ant-sid02-test"));
   assert.ok(normalized.cookieString.includes("lastActiveOrg=b9c40d67-408a-453a-827b-b3dbec951661"));
   assert.ok(normalized.cookieNames.includes("cf_clearance"));
-  assert.equal(normalized.requestHeaders["anthropic-device-id"], "49991d10-6725-4600-800a-3ca5168b4c6f");
+  assert.equal(
+    normalized.requestHeaders["anthropic-device-id"],
+    "49991d10-6725-4600-800a-3ca5168b4c6f"
+  );
   assert.equal(normalized.requestHeaders["anthropic-client-version"], "1.3561.0");
 });
 

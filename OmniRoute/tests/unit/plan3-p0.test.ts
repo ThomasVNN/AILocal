@@ -16,10 +16,18 @@ import {
   parseSSEToResponsesOutput,
 } from "../../open-sse/handlers/sseParser.ts";
 
-test("getModelInfoCore resolves unique non-openai unprefixed model", async () => {
+test("getModelInfoCore requires provider prefix for ambiguous Claude Web2API models", async () => {
   const info = await getModelInfoCore("claude-haiku-4-5-20251001", {});
-  assert.equal(info.provider, "claude");
+  assert.equal(info.provider, null);
   assert.equal(info.model, "claude-haiku-4-5-20251001");
+  assert.equal(info.errorType, "ambiguous_model");
+  assert.ok(Array.isArray(info.candidateProviders));
+  assert.ok(info.candidateProviders.includes("claude"));
+  assert.ok(info.candidateProviders.includes("claudew2a"));
+  assert.ok(Array.isArray(info.candidateAliases));
+  assert.ok(info.candidateAliases.includes("cc"));
+  assert.ok(info.candidateAliases.includes("claude-w2a"));
+  assert.match(info.errorMessage, /provider\/model prefix/i);
 });
 
 test("getModelInfoCore keeps openai fallback for gpt-4o", async () => {
@@ -48,10 +56,12 @@ test("getModelInfoCore requires provider prefix for unprefixed Gemini family mod
   assert.equal(info.provider, null);
   assert.equal(info.errorType, "ambiguous_model");
   assert.ok(Array.isArray(info.candidateProviders));
-  assert.ok(info.candidateProviders.includes("gemini"));
   assert.ok(info.candidateProviders.includes("gemini-web2api"));
-  assert.match(info.errorMessage, /gemini\/gemini-2\.5-pro/i);
-  assert.match(info.errorMessage, /gemini-w2a\/gemini-2\.5-pro/i);
+  assert.ok(Array.isArray(info.candidateAliases));
+  assert.ok(info.candidateAliases.includes("gemini-w2a"));
+  assert.match(info.errorMessage, /Ambiguous model/i);
+  assert.match(info.errorMessage, /provider\/model prefix/i);
+  assert.match(info.errorMessage, /gemini-2\.5-pro/i);
 });
 
 test("getModelInfoCore keeps explicit Gemini provider prefixes working", async () => {

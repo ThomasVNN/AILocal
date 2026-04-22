@@ -37,7 +37,9 @@ RUN apt-get update \
 
 COPY package*.json ./
 COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
+COPY scripts/postinstallSupport.mjs ./scripts/postinstallSupport.mjs
 COPY scripts/native-binary-compat.mjs ./scripts/native-binary-compat.mjs
+COPY scripts/sync-env.mjs ./scripts/sync-env.mjs
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi \
   && case "$TARGETARCH" in \
     amd64) css_pkg="lightningcss-linux-x64-gnu" ;; \

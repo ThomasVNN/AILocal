@@ -20,9 +20,10 @@ function resolveDisabledBundledPluginsDir(): string {
 
 function isSourceCheckoutRoot(packageRoot: string): boolean {
   return (
-    fs.existsSync(path.join(packageRoot, ".git")) &&
     fs.existsSync(path.join(packageRoot, "src")) &&
-    fs.existsSync(path.join(packageRoot, "extensions"))
+    fs.existsSync(path.join(packageRoot, "extensions")) &&
+    (fs.existsSync(path.join(packageRoot, ".git")) ||
+      fs.existsSync(path.join(packageRoot, "src", "infra", "openclaw-root.ts")))
   );
 }
 
@@ -136,7 +137,8 @@ export function resolveBundledPluginsDir(env: NodeJS.ProcessEnv = process.env): 
     return resolvedOverride;
   }
 
-  const preferSourceCheckout = Boolean(env.VITEST) || runningSourceTypeScriptProcess();
+  const preferSourceCheckout =
+    Boolean(env.VITEST || process.env.VITEST) || runningSourceTypeScriptProcess();
 
   try {
     const packageRoots = [

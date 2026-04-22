@@ -566,6 +566,39 @@ function ensureCallLogsColumns(db: SqliteDatabase) {
   }
 }
 
+function ensureComboSortOrderColumn(db: SqliteDatabase) {
+  try {
+    if (hasColumn(db, "combos", "sort_order")) {
+      return;
+    }
+
+    db.exec("ALTER TABLE combos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+    db.exec(`
+      WITH ordered_combos AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            ORDER BY created_at ASC, updated_at ASC, name COLLATE NOCASE ASC
+          ) AS next_sort_order
+        FROM combos
+      )
+      UPDATE combos
+      SET sort_order = COALESCE(
+        (
+          SELECT next_sort_order
+          FROM ordered_combos
+          WHERE ordered_combos.id = combos.id
+        ),
+        0
+      )
+    `);
+    console.log("[DB] Added combos.sort_order column");
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[DB] Failed to verify combos schema:", message);
+  }
+}
+
 function toNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -1279,6 +1312,7 @@ export function getDbInstance(): SqliteDatabase {
   ensureProviderConnectionsColumns(db);
   ensureUsageHistoryColumns(db);
   ensureCallLogsColumns(db);
+  ensureComboSortOrderColumn(db);
 
   // ── Versioned Migrations ──
   // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
@@ -1376,6 +1410,7 @@ export function getDbInstance(): SqliteDatabase {
     migrateFromJson(db, jsonDbFile);
   }
 
+  normalizeLegacyGeminiWeb2ApiConnections(db);
   if (failedProbePath && preservedCriticalState.preservedTables.length > 0) {
     try {
       const restoredTables = restoreCriticalDbState(db, preservedCriticalState);
