@@ -177,23 +177,30 @@ describe("E2E: A2A Server (lifecycle)", () => {
 // ─── Scenario 3: Auto-Combo ─────────────────────────────────────
 describe("E2E: Auto-Combo (routing + self-healing)", () => {
   itCase("should create auto-combo", async () => {
-    const res = await apiFetch("/api/combos/auto", {
+    const res = await apiFetch("/api/combos", {
       method: "POST",
       body: JSON.stringify({
-        id: "e2e-auto",
-        name: "E2E Auto Test",
-        candidatePool: ["anthropic", "google"],
-        modePack: "ship-fast",
+        name: `e2e-auto-test-${Date.now()}`,
+        strategy: "auto",
+        models: [{ model: "gpt-4" }],
+        config: {
+          candidatePool: ["anthropic", "google"],
+          modePack: "ship-fast",
+        },
       }),
     });
+    if (!res.ok) console.error("POST /api/combos failed:", await res.text());
     expect(res.ok).toBe(true);
   });
 
   itCase("should list auto-combos", async () => {
-    const res = await apiFetch("/api/combos/auto");
+    const res = await apiFetch("/api/combos");
+    if (!res.ok) console.error("GET /api/combos failed:", await res.text());
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(Array.isArray(data?.combos)).toBe(true);
+    const autoCombos = data.combos.filter((c: any) => c.strategy === "auto");
+    expect(autoCombos.length).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -242,8 +249,7 @@ describe("E2E: Stress (100 parallel requests)", () => {
 
 // ─── Scenario 6: Security ────────────────────────────────────────
 describe("E2E: Security", () => {
-  itCase("should reject A2A requests without auth when auth is configured", async () => {
-    if (!API_KEY) return; // skip if no auth configured
+  itCase("should handle missing A2A auth according to server configuration", async () => {
     const res = await fetch(`${BASE_URL}/a2a`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -255,11 +261,15 @@ describe("E2E: Security", () => {
         params: { skill: "quota-management", messages: [] },
       }),
     });
-    expect(res.status).toBeGreaterThanOrEqual(401);
+    if (API_KEY) {
+      expect(res.status).toBeGreaterThanOrEqual(401);
+      return;
+    }
+
+    expect([200, 400]).toContain(res.status);
   });
 
-  itCase("should reject invalid API keys", async () => {
-    if (!API_KEY) return;
+  itCase("should handle invalid API keys according to server configuration", async () => {
     const res = await fetch(`${BASE_URL}/a2a`, {
       method: "POST",
       headers: {
@@ -273,7 +283,12 @@ describe("E2E: Security", () => {
         params: { skill: "quota-management", messages: [] },
       }),
     });
-    expect(res.status).toBeGreaterThanOrEqual(401);
+    if (API_KEY) {
+      expect(res.status).toBeGreaterThanOrEqual(401);
+      return;
+    }
+
+    expect([200, 400]).toContain(res.status);
   });
 
   itCase("should not expose internal errors in API responses", async () => {

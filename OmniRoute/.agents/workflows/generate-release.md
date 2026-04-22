@@ -159,21 +159,29 @@ git push origin release/v2.x.y
 
 ### 9. Open PR to main
 
+### 9. Open PR to main
+
+// turbo
+
 ```bash
+VERSION=$(node -p "require('./package.json').version")
+
+# Extract the exact changelog entry for this version from the root CHANGELOG.md
+awk "/^## \\[$VERSION\\]/{flag=1; print; next} /^---/{if(flag) {flag=0; exit}} flag" CHANGELOG.md > /tmp/changelog_body.txt
+
+# Append test status and next steps
+echo "" >> /tmp/changelog_body.txt
+echo "### Tests" >> /tmp/changelog_body.txt
+echo "- All tests pass" >> /tmp/changelog_body.txt
+echo "" >> /tmp/changelog_body.txt
+echo "### ⚠️ After merging: run Phase 2 steps to tag, publish, and deploy." >> /tmp/changelog_body.txt
+
 gh pr create \
   --repo diegosouzapw/OmniRoute \
   --base main \
-  --head release/v2.x.y \
-  --title "chore(release): v2.x.y — summary" \
-  --body "## 🚀 Release v2.x.y
-
-### Changes
-...
-
-### Tests
-- X/X tests pass
-
-### ⚠️ After merging: run Phase 2 steps to tag, publish, and deploy."
+  --head release/v$VERSION \
+  --title "Release v$VERSION" \
+  --body-file /tmp/changelog_body.txt
 ```
 
 ### 10. 🛑 STOP — Notify User & Await PR Confirmation
@@ -203,9 +211,14 @@ Inform the user:
 git checkout main
 git pull origin main
 VERSION=$(node -p "require('./package.json').version")
+
+# Extracts the changelog section for this version
+NOTES=$(awk '/^## \['"$VERSION"'\]/{flag=1; next} /^## \[[0-9]+/{if(flag) exit} flag' CHANGELOG.md | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+if [ -z "$NOTES" ]; then NOTES="OmniRoute v$VERSION Release"; fi
+
 git tag -a "v$VERSION" -m "Release v$VERSION"
 git push origin --tags
-gh release create "v$VERSION" --title "v$VERSION" --notes "OmniRoute v$VERSION Release" --target main
+gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES" --target main
 ```
 
 ### 14. 🐳 Trigger Docker Hub build (MANDATORY — keep npm and Docker in sync)
@@ -238,25 +251,25 @@ gh workflow run docker-publish.yml --repo diegosouzapw/OmniRoute --ref v2.x.y
 
 ```bash
 # Build and pack locally
-cd /home/diegosouzapw/dev/proxys/9router && npm run build:cli && npm pack --ignore-scripts
+cd /home/diegosouzapw/dev/proxys/9router && rm -f omniroute-*.tgz && rm -rf .next/cache app/.next/cache && npm run build:cli && rm -rf app/logs app/coverage app/.git app/.app-build-backup* && npm pack --ignore-scripts
 
 # Deploy to LOCAL VPS (192.168.0.15)
 scp omniroute-*.tgz root@192.168.0.15:/tmp/
-ssh root@192.168.0.15 "npm install -g /tmp/omniroute-*.tgz --ignore-scripts && pm2 restart omniroute && pm2 save"
+ssh root@192.168.0.15 "npm install -g /tmp/omniroute-*.tgz --ignore-scripts && cd /usr/lib/node_modules/omniroute/app && npm rebuild better-sqlite3 && pm2 delete omniroute 2>/dev/null; pm2 start /root/.omniroute/ecosystem.config.cjs --update-env && pm2 save && echo '✅ Local done'"
 
 # Deploy to AKAMAI VPS (69.164.221.35)
 scp omniroute-*.tgz root@69.164.221.35:/tmp/
-ssh root@69.164.221.35 "npm install -g /tmp/omniroute-*.tgz --ignore-scripts && pm2 restart omniroute && pm2 save"
+ssh root@69.164.221.35 "npm install -g /tmp/omniroute-*.tgz --ignore-scripts && cd /usr/lib/node_modules/omniroute/app && npm rebuild better-sqlite3 && pm2 delete omniroute 2>/dev/null; pm2 start /root/.omniroute/ecosystem.config.cjs --update-env && pm2 save && echo '✅ Akamai done'"
 
 # Verify both
 curl -s -o /dev/null -w "LOCAL:  HTTP %{http_code}\n" http://192.168.0.15:20128/
 curl -s -o /dev/null -w "AKAMAI: HTTP %{http_code}\n" http://69.164.221.35:20128/
 ```
 
-### 16. Clean up release branch
+### 16. Preserve release branch
 
 ```bash
-git branch -d release/v2.x.y
+# Branch is kept for historical purposes. Do not delete.
 ```
 
 ---

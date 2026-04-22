@@ -12,11 +12,11 @@ import {
   updateProviderConnection,
   getProviderConnections,
   isCloudEnabled,
+  resolveProxyForProvider,
 } from "@/models";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { startLocalServer } from "@/lib/oauth/utils/server";
-import { getProxyConfig } from "@/lib/localDb";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import {
   jsonObjectSchema,
@@ -82,14 +82,19 @@ export async function GET(
 
       const authData = generateAuthData(provider, null);
 
-      // For providers that don't use PKCE (like GitHub), don't pass codeChallenge
+      // Resolve proxy for this provider (provider-level → global → direct)
+      const proxy = await resolveProxyForProvider(provider);
+
+      // Request device code (through proxy if configured)
       let deviceData;
       if (provider === "github" || provider === "kiro" || provider === "kilocode") {
         // GitHub, Kiro, and KiloCode don't use PKCE for device code
-        deviceData = await (requestDeviceCode as any)(provider);
+        deviceData = await runWithProxyContext(proxy, () => (requestDeviceCode as any)(provider));
       } else {
         // Qwen and other providers use PKCE
-        deviceData = await requestDeviceCode(provider, authData.codeChallenge);
+        deviceData = await runWithProxyContext(proxy, () =>
+          requestDeviceCode(provider, authData.codeChallenge)
+        );
       }
 
       return NextResponse.json({
@@ -224,14 +229,32 @@ export async function POST(
 
     if (action === "exchange") {
       const { code, redirectUri, codeVerifier, state } = body;
+      const normalizedState = typeof state === "string" && state.length > 0 ? state : undefined;
+      const providerData = getProvider(provider);
+
+      if (providerData.flowType === "authorization_code_pkce" && !codeVerifier) {
+        return NextResponse.json(
+          {
+            error: {
+              message: "Invalid request",
+              details: [
+                {
+                  field: "codeVerifier",
+                  message: `Code verifier is required for ${provider} OAuth exchange`,
+                },
+              ],
+            },
+          },
+          { status: 400 }
+        );
+      }
 
       // Resolve proxy for this provider (provider-level → global → direct)
-      const proxyConfig = await getProxyConfig();
-      const proxy = proxyConfig.providers?.[provider] || proxyConfig.global || null;
+      const proxy = await resolveProxyForProvider(provider);
 
       // Exchange code for tokens (through proxy if configured)
       const tokenData = await runWithProxyContext(proxy, () =>
-        exchangeTokens(provider, code, redirectUri, codeVerifier, state)
+        exchangeTokens(provider, code, redirectUri, codeVerifier, normalizedState)
       );
 
       // Normalize: if name is missing, use email or displayName as fallback so accounts
@@ -295,19 +318,29 @@ export async function POST(
     if (action === "poll") {
       const { deviceCode, codeVerifier, extraData } = body;
 
-      // For providers that don't use PKCE (like GitHub, Kiro, Kimi Coding), don't pass codeVerifier
+      // Resolve proxy for this provider (provider-level → global → direct)
+      const proxy = await resolveProxyForProvider(provider);
+
+      // Poll for token (through proxy if configured)
       let result;
       if (provider === "github" || provider === "kimi-coding" || provider === "kilocode") {
-        result = await (pollForToken as any)(provider, deviceCode);
+        // For providers that don't use PKCE (like GitHub, Kiro, Kimi Coding), don't pass codeVerifier
+        result = await runWithProxyContext(proxy, () =>
+          (pollForToken as any)(provider, deviceCode)
+        );
       } else if (provider === "kiro") {
         // Kiro needs extraData (clientId, clientSecret) from device code response
-        result = await (pollForToken as any)(provider, deviceCode, null, extraData);
+        result = await runWithProxyContext(proxy, () =>
+          (pollForToken as any)(provider, deviceCode, null, extraData)
+        );
       } else {
         // Qwen and other providers use PKCE
         if (!codeVerifier) {
           return NextResponse.json({ error: "Missing code verifier" }, { status: 400 });
         }
-        result = await (pollForToken as any)(provider, deviceCode, codeVerifier);
+        result = await runWithProxyContext(proxy, () =>
+          (pollForToken as any)(provider, deviceCode, codeVerifier)
+        );
       }
 
       if (result.success) {
@@ -429,8 +462,7 @@ export async function POST(
 
       try {
         // Resolve proxy for this provider
-        const proxyConfig = await getProxyConfig();
-        const proxy = proxyConfig.providers?.[provider] || proxyConfig.global || null;
+        const proxy = await resolveProxyForProvider(provider);
 
         // Exchange code for tokens (through proxy if configured)
         const tokenData = await runWithProxyContext(proxy, () =>

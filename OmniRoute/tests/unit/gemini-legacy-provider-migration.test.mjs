@@ -27,7 +27,8 @@ test("DB startup migrates legacy Gemini Web2API API-key connections to official 
   const db = core.getDbInstance();
   const now = new Date().toISOString();
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO provider_connections (
       id, provider, auth_type, priority, is_active,
       access_token, test_status, display_name, provider_specific_data,
@@ -37,7 +38,8 @@ test("DB startup migrates legacy Gemini Web2API API-key connections to official 
       @accessToken, @testStatus, @displayName, @providerSpecificData,
       @createdAt, @updatedAt
     )
-  `).run({
+  `
+  ).run({
     id: "legacy-gemini-web2api-key",
     provider: "gemini-web2api",
     authType: "oauth",

@@ -1,6 +1,6 @@
 # API Reference (Português (Portugal))
 
-🌐 **Languages:** 🇺🇸 [English](../../../../docs/API_REFERENCE.md) · 🇪🇸 [es](../../es/docs/API_REFERENCE.md) · 🇫🇷 [fr](../../fr/docs/API_REFERENCE.md) · 🇩🇪 [de](../../de/docs/API_REFERENCE.md) · 🇮🇹 [it](../../it/docs/API_REFERENCE.md) · 🇷🇺 [ru](../../ru/docs/API_REFERENCE.md) · 🇨🇳 [zh-CN](../../zh-CN/docs/API_REFERENCE.md) · 🇯🇵 [ja](../../ja/docs/API_REFERENCE.md) · 🇰🇷 [ko](../../ko/docs/API_REFERENCE.md) · 🇸🇦 [ar](../../ar/docs/API_REFERENCE.md) · 🇮🇳 [in](../../in/docs/API_REFERENCE.md) · 🇹🇭 [th](../../th/docs/API_REFERENCE.md) · 🇻🇳 [vi](../../vi/docs/API_REFERENCE.md) · 🇮🇩 [id](../../id/docs/API_REFERENCE.md) · 🇲🇾 [ms](../../ms/docs/API_REFERENCE.md) · 🇳🇱 [nl](../../nl/docs/API_REFERENCE.md) · 🇵🇱 [pl](../../pl/docs/API_REFERENCE.md) · 🇸🇪 [sv](../../sv/docs/API_REFERENCE.md) · 🇳🇴 [no](../../no/docs/API_REFERENCE.md) · 🇩🇰 [da](../../da/docs/API_REFERENCE.md) · 🇫🇮 [fi](../../fi/docs/API_REFERENCE.md) · 🇵🇹 [pt](../../pt/docs/API_REFERENCE.md) · 🇷🇴 [ro](../../ro/docs/API_REFERENCE.md) · 🇭🇺 [hu](../../hu/docs/API_REFERENCE.md) · 🇧🇬 [bg](../../bg/docs/API_REFERENCE.md) · 🇸🇰 [sk](../../sk/docs/API_REFERENCE.md) · 🇺🇦 [uk-UA](../../uk-UA/docs/API_REFERENCE.md) · 🇮🇱 [he](../../he/docs/API_REFERENCE.md) · 🇵🇭 [phi](../../phi/docs/API_REFERENCE.md) · 🇧🇷 [pt-BR](../../pt-BR/docs/API_REFERENCE.md) · 🇨🇿 [cs](../../cs/docs/API_REFERENCE.md)
+🌐 **Languages:** 🇺🇸 [English](../../../../docs/API_REFERENCE.md) · 🇪🇸 [es](../../es/docs/API_REFERENCE.md) · 🇫🇷 [fr](../../fr/docs/API_REFERENCE.md) · 🇩🇪 [de](../../de/docs/API_REFERENCE.md) · 🇮🇹 [it](../../it/docs/API_REFERENCE.md) · 🇷🇺 [ru](../../ru/docs/API_REFERENCE.md) · 🇨🇳 [zh-CN](../../zh-CN/docs/API_REFERENCE.md) · 🇯🇵 [ja](../../ja/docs/API_REFERENCE.md) · 🇰🇷 [ko](../../ko/docs/API_REFERENCE.md) · 🇸🇦 [ar](../../ar/docs/API_REFERENCE.md) · 🇮🇳 [hi](../../hi/docs/API_REFERENCE.md) · 🇮🇳 [in](../../in/docs/API_REFERENCE.md) · 🇹🇭 [th](../../th/docs/API_REFERENCE.md) · 🇻🇳 [vi](../../vi/docs/API_REFERENCE.md) · 🇮🇩 [id](../../id/docs/API_REFERENCE.md) · 🇲🇾 [ms](../../ms/docs/API_REFERENCE.md) · 🇳🇱 [nl](../../nl/docs/API_REFERENCE.md) · 🇵🇱 [pl](../../pl/docs/API_REFERENCE.md) · 🇸🇪 [sv](../../sv/docs/API_REFERENCE.md) · 🇳🇴 [no](../../no/docs/API_REFERENCE.md) · 🇩🇰 [da](../../da/docs/API_REFERENCE.md) · 🇫🇮 [fi](../../fi/docs/API_REFERENCE.md) · 🇵🇹 [pt](../../pt/docs/API_REFERENCE.md) · 🇷🇴 [ro](../../ro/docs/API_REFERENCE.md) · 🇭🇺 [hu](../../hu/docs/API_REFERENCE.md) · 🇧🇬 [bg](../../bg/docs/API_REFERENCE.md) · 🇸🇰 [sk](../../sk/docs/API_REFERENCE.md) · 🇺🇦 [uk-UA](../../uk-UA/docs/API_REFERENCE.md) · 🇮🇱 [he](../../he/docs/API_REFERENCE.md) · 🇵🇭 [phi](../../phi/docs/API_REFERENCE.md) · 🇧🇷 [pt-BR](../../pt-BR/docs/API_REFERENCE.md) · 🇨🇿 [cs](../../cs/docs/API_REFERENCE.md) · 🇹🇷 [tr](../../tr/docs/API_REFERENCE.md)
 
 ---
 
@@ -70,7 +70,7 @@ Content-Type: application/json
 }
 ```
 
-Available providers: Nebius, OpenAI, Mistral, Together AI, Fireworks, NVIDIA.
+Available providers: Nebius, OpenAI, Mistral, Together AI, Fireworks, NVIDIA, **OpenRouter**, **GitHub Models**.
 
 ```bash
 # List all embedding models
@@ -93,7 +93,7 @@ Content-Type: application/json
 }
 ```
 
-Available providers: OpenAI (DALL-E), xAI (Grok Image), Together AI (FLUX), Fireworks AI.
+Available providers: OpenAI (DALL-E, GPT Image 1), xAI (Grok Image), Together AI (FLUX), Fireworks AI, Nebius (FLUX), Hyperbolic, NanoBanana, **OpenRouter**, SD WebUI (local), ComfyUI (local).
 
 ```bash
 # List all image models
@@ -181,15 +181,15 @@ Response example:
 
 ### Provider Management
 
-| Endpoint                     | Method          | Description              |
-| ---------------------------- | --------------- | ------------------------ |
-| `/api/providers`             | GET/POST        | List / create providers  |
-| `/api/providers/[id]`        | GET/PUT/DELETE  | Manage a provider        |
-| `/api/providers/[id]/test`   | POST            | Test provider connection |
-| `/api/providers/[id]/models` | GET             | List provider models     |
-| `/api/providers/validate`    | POST            | Validate provider config |
-| `/api/provider-nodes*`       | Various         | Provider node management |
-| `/api/provider-models`       | GET/POST/DELETE | Custom models            |
+| Endpoint                     | Method                | Description                                    |
+| ---------------------------- | --------------------- | ---------------------------------------------- |
+| `/api/providers`             | GET/POST              | List / create providers                        |
+| `/api/providers/[id]`        | GET/PUT/DELETE        | Manage a provider                              |
+| `/api/providers/[id]/test`   | POST                  | Test provider connection                       |
+| `/api/providers/[id]/models` | GET                   | List provider models                           |
+| `/api/providers/validate`    | POST                  | Validate provider config                       |
+| `/api/provider-nodes*`       | Various               | Provider node management                       |
+| `/api/provider-models`       | GET/POST/PATCH/DELETE | Custom models (add, update, hide/show, delete) |
 
 ### OAuth Flows
 
@@ -322,14 +322,37 @@ These endpoints mirror Gemini's API format for clients that expect native Gemini
 
 ### Internal / System APIs
 
-| Endpoint        | Method | Description                                          |
-| --------------- | ------ | ---------------------------------------------------- |
-| `/api/init`     | GET    | Application initialization check (used on first run) |
-| `/api/tags`     | GET    | Ollama-compatible model tags (for Ollama clients)    |
-| `/api/restart`  | POST   | Trigger graceful server restart                      |
-| `/api/shutdown` | POST   | Trigger graceful server shutdown                     |
+| Endpoint                 | Method | Description                                          |
+| ------------------------ | ------ | ---------------------------------------------------- |
+| `/api/init`              | GET    | Application initialization check (used on first run) |
+| `/api/tags`              | GET    | Ollama-compatible model tags (for Ollama clients)    |
+| `/api/restart`           | POST   | Trigger graceful server restart                      |
+| `/api/shutdown`          | POST   | Trigger graceful server shutdown                     |
+| `/api/system/env/repair` | POST   | Repair OAuth provider environment variables          |
+| `/api/system-info`       | GET    | Generate system diagnostics report                   |
 
 > **Note:** These endpoints are used internally by the system or for Ollama client compatibility. They are not typically called by end users.
+
+### OAuth Environment Repair _(v3.6.1+)_
+
+```bash
+POST /api/system/env/repair
+Content-Type: application/json
+
+{
+  "provider": "claude-code"
+}
+```
+
+Repairs missing or corrupted OAuth environment variables for a specific provider. Returns:
+
+```json
+{
+  "success": true,
+  "repaired": ["CLAUDE_CODE_OAUTH_CLIENT_ID", "CLAUDE_CODE_OAUTH_CLIENT_SECRET"],
+  "backupPath": "/home/user/.omniroute/backups/env-repair-2026-04-11.bak"
+}
+```
 
 ---
 

@@ -105,8 +105,7 @@ export default function GeminiWeb2ApiAuthModal({ isOpen, onSuccess, onClose }) {
               <p>
                 Paste full request headers, cookie exports, or <b>Copy as cURL</b> from{" "}
                 <b>gemini.google.com</b>. This flow only accepts browser-derived web sessions.
-                Official Gemini API keys belong under the <b>Gemini (Google AI Studio)</b>{" "}
-                provider.
+                Official Gemini API keys belong under the <b>Gemini (Google AI Studio)</b> provider.
               </p>
             </div>
           </div>
@@ -136,8 +135,8 @@ export default function GeminiWeb2ApiAuthModal({ isOpen, onSuccess, onClose }) {
                   paste it here
                 </li>
                 <li>
-                  Supported today: raw browser header lists, cookie exports, or{" "}
-                  <b>Copy as cURL</b> captures that include cookie/auth headers
+                  Supported today: raw browser header lists, cookie exports, or <b>Copy as cURL</b>{" "}
+                  captures that include cookie/auth headers
                 </li>
                 <li>
                   If you use web-session import, include the full request so OmniRoute can extract{" "}

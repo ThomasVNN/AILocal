@@ -75,6 +75,7 @@ export {
   getComboByName,
   createCombo,
   updateCombo,
+  reorderCombos,
   deleteCombo,
 } from "./db/combos";
 
@@ -129,6 +130,7 @@ export {
   getProxyWhereUsed,
   assignProxyToScope,
   resolveProxyForConnectionFromRegistry,
+  resolveProxyForProvider,
   migrateLegacyProxyConfigToRegistry,
   getProxyHealthStats,
   bulkAssignProxyToScope,
@@ -149,6 +151,9 @@ export {
 export {
   // Backup Management
   backupDbFile,
+  cleanupDbBackups,
+  getDbBackupMaxFiles,
+  getDbBackupRetentionDays,
   listDbBackups,
   restoreDbBackup,
 } from "./db/backup";
@@ -158,6 +163,8 @@ export {
   getCachedSettings,
   getCachedPricing,
   getCachedProviderConnections,
+  getCachedLKGP,
+  setCachedLKGP,
   invalidateDbCache,
 } from "./db/readCache";
 
@@ -232,6 +239,15 @@ export {
 } from "./db/versionManager";
 
 export {
+  listSyncTokens,
+  getSyncTokenById,
+  getSyncTokenByHash,
+  createSyncTokenRecord,
+  revokeSyncToken,
+  touchSyncTokenLastUsed,
+} from "./db/syncTokens";
+
+export {
   getUpstreamProxyConfigs,
   getUpstreamProxyConfig,
   upsertUpstreamProxyConfig,
@@ -251,3 +267,9 @@ export {
 } from "./db/providerLimits";
 
 export type { ProviderLimitsCacheEntry } from "./db/providerLimits";
+
+export {
+  getPersistedCreditBalance,
+  getAllPersistedCreditBalances,
+  persistCreditBalance,
+} from "./db/creditBalance";

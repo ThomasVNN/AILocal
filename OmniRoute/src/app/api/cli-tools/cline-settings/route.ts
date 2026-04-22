@@ -9,7 +9,7 @@ import { createBackup } from "@/shared/services/backupService";
 import { saveCliToolLastConfigured, deleteCliToolLastConfigured } from "@/lib/db/cliToolState";
 import { cliModelConfigSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
-import { getApiKeyById } from "@/lib/localDb";
+import { resolveApiKey } from "@/shared/services/apiKeyResolver";
 
 const CLINE_DATA_DIR = path.join(os.homedir(), ".cline", "data");
 const GLOBAL_STATE_PATH = path.join(CLINE_DATA_DIR, "globalState.json");
@@ -122,22 +122,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: writeGuard }, { status: 403 });
     }
 
+    // (#526) Extract keyId BEFORE validation — Zod strips unknown fields!
+    const keyId = typeof rawBody?.keyId === "string" ? rawBody.keyId.trim() : null;
+
     const validation = validateBody(cliModelConfigSchema, rawBody);
     if (isValidationFailure(validation)) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-    let { baseUrl, apiKey, model } = validation.data;
-
-    // (#526) Resolve real key from DB if keyId was provided
-    const keyId = typeof rawBody?.keyId === "string" ? rawBody.keyId.trim() : null;
-    if (keyId) {
-      try {
-        const keyRecord = await getApiKeyById(keyId);
-        if (keyRecord?.key) apiKey = keyRecord.key as string;
-      } catch {
-        /* non-critical */
-      }
-    }
+    const { baseUrl, model } = validation.data;
+    const apiKey = await resolveApiKey(keyId, validation.data.apiKey);
 
     // Ensure directory exists
     await fs.mkdir(CLINE_DATA_DIR, { recursive: true });

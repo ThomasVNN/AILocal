@@ -1,9 +1,4 @@
-import type {
-  PrivacyConfig,
-  PrivacyLevel,
-  PrivacyRule,
-  PrivacyTransformMode,
-} from "./types";
+import type { PrivacyConfig, PrivacyLevel, PrivacyRule, PrivacyTransformMode } from "./types";
 
 export type PrivacyFilterView =
   | "overview"

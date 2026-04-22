@@ -1,6 +1,6 @@
-# CLI Tools Setup Guide — OmniRoute (हिन्दी)
+# CLI Tools Setup Guide — OmniRoute (हिन्दी (IN))
 
-🌐 **Languages:** 🇺🇸 [English](../../../../docs/CLI-TOOLS.md) · 🇪🇸 [es](../../es/docs/CLI-TOOLS.md) · 🇫🇷 [fr](../../fr/docs/CLI-TOOLS.md) · 🇩🇪 [de](../../de/docs/CLI-TOOLS.md) · 🇮🇹 [it](../../it/docs/CLI-TOOLS.md) · 🇷🇺 [ru](../../ru/docs/CLI-TOOLS.md) · 🇨🇳 [zh-CN](../../zh-CN/docs/CLI-TOOLS.md) · 🇯🇵 [ja](../../ja/docs/CLI-TOOLS.md) · 🇰🇷 [ko](../../ko/docs/CLI-TOOLS.md) · 🇸🇦 [ar](../../ar/docs/CLI-TOOLS.md) · 🇮🇳 [in](../../in/docs/CLI-TOOLS.md) · 🇹🇭 [th](../../th/docs/CLI-TOOLS.md) · 🇻🇳 [vi](../../vi/docs/CLI-TOOLS.md) · 🇮🇩 [id](../../id/docs/CLI-TOOLS.md) · 🇲🇾 [ms](../../ms/docs/CLI-TOOLS.md) · 🇳🇱 [nl](../../nl/docs/CLI-TOOLS.md) · 🇵🇱 [pl](../../pl/docs/CLI-TOOLS.md) · 🇸🇪 [sv](../../sv/docs/CLI-TOOLS.md) · 🇳🇴 [no](../../no/docs/CLI-TOOLS.md) · 🇩🇰 [da](../../da/docs/CLI-TOOLS.md) · 🇫🇮 [fi](../../fi/docs/CLI-TOOLS.md) · 🇵🇹 [pt](../../pt/docs/CLI-TOOLS.md) · 🇷🇴 [ro](../../ro/docs/CLI-TOOLS.md) · 🇭🇺 [hu](../../hu/docs/CLI-TOOLS.md) · 🇧🇬 [bg](../../bg/docs/CLI-TOOLS.md) · 🇸🇰 [sk](../../sk/docs/CLI-TOOLS.md) · 🇺🇦 [uk-UA](../../uk-UA/docs/CLI-TOOLS.md) · 🇮🇱 [he](../../he/docs/CLI-TOOLS.md) · 🇵🇭 [phi](../../phi/docs/CLI-TOOLS.md) · 🇧🇷 [pt-BR](../../pt-BR/docs/CLI-TOOLS.md) · 🇨🇿 [cs](../../cs/docs/CLI-TOOLS.md)
+🌐 **Languages:** 🇺🇸 [English](../../../../docs/CLI-TOOLS.md) · 🇪🇸 [es](../../es/docs/CLI-TOOLS.md) · 🇫🇷 [fr](../../fr/docs/CLI-TOOLS.md) · 🇩🇪 [de](../../de/docs/CLI-TOOLS.md) · 🇮🇹 [it](../../it/docs/CLI-TOOLS.md) · 🇷🇺 [ru](../../ru/docs/CLI-TOOLS.md) · 🇨🇳 [zh-CN](../../zh-CN/docs/CLI-TOOLS.md) · 🇯🇵 [ja](../../ja/docs/CLI-TOOLS.md) · 🇰🇷 [ko](../../ko/docs/CLI-TOOLS.md) · 🇸🇦 [ar](../../ar/docs/CLI-TOOLS.md) · 🇮🇳 [hi](../../hi/docs/CLI-TOOLS.md) · 🇮🇳 [in](../../in/docs/CLI-TOOLS.md) · 🇹🇭 [th](../../th/docs/CLI-TOOLS.md) · 🇻🇳 [vi](../../vi/docs/CLI-TOOLS.md) · 🇮🇩 [id](../../id/docs/CLI-TOOLS.md) · 🇲🇾 [ms](../../ms/docs/CLI-TOOLS.md) · 🇳🇱 [nl](../../nl/docs/CLI-TOOLS.md) · 🇵🇱 [pl](../../pl/docs/CLI-TOOLS.md) · 🇸🇪 [sv](../../sv/docs/CLI-TOOLS.md) · 🇳🇴 [no](../../no/docs/CLI-TOOLS.md) · 🇩🇰 [da](../../da/docs/CLI-TOOLS.md) · 🇫🇮 [fi](../../fi/docs/CLI-TOOLS.md) · 🇵🇹 [pt](../../pt/docs/CLI-TOOLS.md) · 🇷🇴 [ro](../../ro/docs/CLI-TOOLS.md) · 🇭🇺 [hu](../../hu/docs/CLI-TOOLS.md) · 🇧🇬 [bg](../../bg/docs/CLI-TOOLS.md) · 🇸🇰 [sk](../../sk/docs/CLI-TOOLS.md) · 🇺🇦 [uk-UA](../../uk-UA/docs/CLI-TOOLS.md) · 🇮🇱 [he](../../he/docs/CLI-TOOLS.md) · 🇵🇭 [phi](../../phi/docs/CLI-TOOLS.md) · 🇧🇷 [pt-BR](../../pt-BR/docs/CLI-TOOLS.md) · 🇨🇿 [cs](../../cs/docs/CLI-TOOLS.md) · 🇹🇷 [tr](../../tr/docs/CLI-TOOLS.md)
 
 ---
 
@@ -50,6 +50,7 @@ Current list (v3.0.0-rc.16):
 | **GitHub Copilot** | `copilot`     | extension  | custom     | VS Code        |
 | **OpenCode**       | `opencode`    | `opencode` | guide      | npm            |
 | **Kiro AI**        | `kiro`        | app/cli    | mitm       | desktop/CLI    |
+| **Qwen Code**      | `qwen`        | `qwen`     | custom     | npm            |
 
 ### CLI fingerprint sync (Agents + Settings)
 
@@ -257,6 +258,55 @@ kiro-cli status
 
 ---
 
+### Qwen Code (Alibaba)
+
+Qwen Code supports OpenAI-compatible API endpoints via environment variables or `settings.json`.
+
+**Option 1: Environment variables (`~/.qwen/.env`)**
+
+```bash
+mkdir -p ~/.qwen && cat > ~/.qwen/.env << EOF
+OPENAI_API_KEY="sk-your-omniroute-key"
+OPENAI_BASE_URL="http://localhost:20128/v1"
+OPENAI_MODEL="auto"
+EOF
+```
+
+**Option 2: `settings.json` with model providers**
+
+```json
+// ~/.qwen/settings.json
+{
+  "env": {
+    "OPENAI_API_KEY": "sk-your-omniroute-key",
+    "OPENAI_BASE_URL": "http://localhost:20128/v1"
+  },
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "omniroute-default",
+        "name": "OmniRoute (Auto)",
+        "envKey": "OPENAI_API_KEY",
+        "baseUrl": "http://localhost:20128/v1"
+      }
+    ]
+  }
+}
+```
+
+**Option 3: Inline CLI flags**
+
+```bash
+OPENAI_BASE_URL="http://localhost:20128/v1" \
+OPENAI_API_KEY="sk-your-omniroute-key" \
+OPENAI_MODEL="auto" \
+qwen
+```
+
+> For a **remote server** replace `localhost:20128` with the server IP or domain.
+
+**Test:** `qwen "say hello"`
+
 ### Cursor (Desktop App)
 
 > **Note:** Cursor routes requests through its cloud. For OmniRoute integration,
@@ -326,7 +376,7 @@ They run as internal routes and use OmniRoute's model routing automatically.
 OMNIROUTE_URL="http://localhost:20128/v1"
 OMNIROUTE_KEY="sk-your-omniroute-key"
 
-npm install -g @anthropic-ai/claude-code @openai/codex opencode-ai cline kilocode
+npm install -g @anthropic-ai/claude-code @openai/codex opencode-ai cline kilocode @qwen-code/qwen-code
 
 # Kiro CLI
 apt-get install -y unzip 2>/dev/null; curl -fsSL https://cli.kiro.dev/install | bash
